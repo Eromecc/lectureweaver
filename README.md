@@ -146,3 +146,7 @@ The app uses only bundled/static sample assets and browser-side processing, so t
 ## Privacy
 
 Files selected in Milestone 1 are processed locally in the browser. They are not uploaded by application code, and no application database exists. Use synthetic or non-sensitive material when testing deployments you do not control.
+
+## License
+
+The source code is available under the [MIT License](./LICENSE).
