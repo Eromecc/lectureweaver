@@ -25,17 +25,25 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-import type { AssessmentStatus, SourceType } from "@/domain";
 import type {
+  AnalysisTarget,
+  AssessmentStatus,
+  PublicProviderCatalog,
+  SourceType,
+} from "@/domain";
+import type {
+  AnalysisResult,
   HydratedConceptAssessment,
   HydratedEvidence,
 } from "@/lib/analysis";
 import {
-  DemoFingerprintMismatchError,
+  LiveAnalysisError,
+  requestLiveAnalysis,
+} from "@/lib/ai/client";
+import {
   loadDemoFiles,
   runFixtureAnalysis,
 } from "@/lib/demo";
-import type { DemoAnalysisResult } from "@/lib/demo";
 import {
   processSourceFiles,
   SourceProcessingError,
@@ -53,8 +61,18 @@ type SourceSpec = {
 };
 
 type PipelineMode = "idle" | "loading" | "ready" | "source-map" | "error";
+type LoadingKind = "demo" | "live" | "local";
+type PipelineErrorState = {
+  kind: "processing" | "live" | "demo";
+  message: string;
+  retryable: boolean;
+};
 type IssueStatus = Exclude<AssessmentStatus, "covered">;
 type IssueFilter = "all" | IssueStatus;
+
+type PublicProvider = PublicProviderCatalog["providers"][number];
+
+const EMPTY_PROVIDER_CATALOG: PublicProviderCatalog = { providers: [] };
 
 const SOURCE_SPECS: readonly SourceSpec[] = [
   {
@@ -136,16 +154,58 @@ function hasAllFiles(files: Partial<SourceFiles>): files is SourceFiles {
   return files.slides !== undefined && files.transcript !== undefined && files.notes !== undefined;
 }
 
+function defaultTarget(catalog: PublicProviderCatalog): AnalysisTarget | null {
+  const provider =
+    catalog.providers.find((candidate) => candidate.configured) ??
+    catalog.providers[0];
+  if (provider === undefined) return null;
+
+  const model =
+    provider.models.find((candidate) => candidate.id === provider.defaultModel) ??
+    provider.models[0];
+  if (model === undefined) return null;
+
+  return { provider: provider.id, model: model.id };
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof SourceProcessingError) return error.message;
-  if (error instanceof Error) return error.message;
-  return "LectureWeaver could not process those files. Please try again.";
+function processingError(error: unknown): PipelineErrorState {
+  return {
+    kind: "processing",
+    message:
+      error instanceof SourceProcessingError || error instanceof Error
+        ? error.message
+        : "LectureWeaver could not process those files. Please try again.",
+    retryable: false,
+  };
+}
+
+function liveError(error: unknown): PipelineErrorState {
+  return {
+    kind: "live",
+    message:
+      error instanceof LiveAnalysisError || error instanceof Error
+        ? error.message
+        : "The selected model did not return a usable analysis.",
+    retryable:
+      error instanceof LiveAnalysisError ? error.retryable : true,
+  };
+}
+
+function demoPipelineError(error: unknown): PipelineErrorState {
+  return {
+    kind: "demo",
+    message:
+      error instanceof Error
+        ? error.message
+        : "The included demo could not be loaded. Please retry.",
+    retryable: true,
+  };
 }
 
 function nextPaint(): Promise<void> {
@@ -178,7 +238,7 @@ function AppHeader({ onTryDemo, loading }: { onTryDemo: () => void; loading: boo
         <div className="flex items-center gap-3">
           <span className="hidden items-center gap-1.5 rounded-full border border-[#2f837c]/20 bg-white/60 px-3 py-1.5 text-xs font-bold text-[#1f625e] sm:flex">
             <Lock className="size-3.5" aria-hidden="true" />
-            No-key browser demo
+            Local demo · Optional live AI
           </span>
           <button
             type="button"
@@ -228,8 +288,8 @@ function Hero({ onTryDemo, loading }: { onTryDemo: () => void; loading: boolean 
           <ul className="mt-6 space-y-3 text-sm text-[#53627b]">
             {[
               "Real local PDF and Markdown parsing",
-              "Fixture locked to source fingerprints",
-              "Trusted evidence and deterministic scoring",
+              "No-key fixture locked to source fingerprints",
+              "Optional OpenAI, DeepSeek, and Kimi analysis",
             ].map((item) => (
               <li key={item} className="flex items-center gap-3">
                 <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#14213d] text-white">
@@ -249,7 +309,7 @@ function Hero({ onTryDemo, loading }: { onTryDemo: () => void; loading: boolean 
             {loading ? "Weaving the sources…" : "Try the sample lecture"}
             {!loading && <ArrowRight className="size-4" aria-hidden="true" />}
           </button>
-          <p className="mt-3 text-center text-xs text-[#53627b]">No API key · no uploads · about 3 seconds</p>
+          <p className="mt-3 text-center text-xs text-[#53627b]">No API key · no model request · about 3 seconds</p>
         </div>
       </div>
     </section>
@@ -331,8 +391,19 @@ function FileCard({ spec, file, inputKey, disabled, onSelect }: FileCardProps) {
   );
 }
 
-function LoadingPanel({ message }: { message: string }) {
-  const steps = ["Validate files", "Extract + normalize", "Hydrate trusted evidence"];
+function LoadingPanel({ message, kind }: { message: string; kind: LoadingKind }) {
+  const steps =
+    kind === "live"
+      ? ["Validate files", "Extract locally", "Analyze normalized chunks", "Hydrate evidence"]
+      : kind === "demo"
+        ? ["Validate files", "Extract + normalize", "Verify fixture", "Hydrate evidence"]
+        : ["Validate files", "Extract + normalize", "Build source map"];
+  const eyebrow =
+    kind === "live"
+      ? "Live model analysis"
+      : kind === "demo"
+        ? "No-key demo"
+        : "Local processing";
   return (
     <section className="animate-rise rounded-[28px] border border-[#2f837c]/20 bg-[#14213d] p-6 text-white shadow-card sm:p-8" aria-live="polite" aria-busy="true">
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
@@ -342,7 +413,7 @@ function LoadingPanel({ message }: { message: string }) {
             <LoaderCircle className="relative size-6 animate-spin text-[#f8ebc8]" aria-hidden="true" />
           </span>
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#b8dcd6]">Local processing</p>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#b8dcd6]">{eyebrow}</p>
             <p className="mt-1 text-lg font-bold">{message}</p>
           </div>
         </div>
@@ -358,7 +429,21 @@ function LoadingPanel({ message }: { message: string }) {
   );
 }
 
-function SourceMapSummary({ processed, verified }: { processed: ProcessedSources; verified: boolean }) {
+function SourceMapSummary({
+  processed,
+  origin,
+}: {
+  processed: ProcessedSources;
+  origin: AnalysisResult["origin"] | null;
+}) {
+  const statusLabel =
+    origin?.kind === "demo"
+      ? "Sample fingerprint verified"
+      : origin?.kind === "live"
+        ? `${origin.providerLabel} · ${origin.model}`
+        : "Local source map ready";
+  const completedAnalysis = origin !== null;
+
   return (
     <section className="rounded-[28px] border border-[#14213d]/10 bg-white/70 p-6 shadow-card sm:p-8" aria-labelledby="source-map-title">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -367,9 +452,9 @@ function SourceMapSummary({ processed, verified }: { processed: ProcessedSources
           <h2 id="source-map-title" className="mt-2 text-2xl font-bold tracking-[-0.04em]">Trusted source map</h2>
           <p className="mt-2 text-sm leading-6 text-[#53627b]">Every locator below was rebuilt from the files currently in memory.</p>
         </div>
-        <span className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ${verified ? "bg-[#dcece8] text-[#1f625e]" : "bg-[#f8ebc8] text-[#765511]"}`}>
-          {verified ? <ShieldCheck className="size-4" /> : <Lock className="size-4" />}
-          {verified ? "Sample fingerprint verified" : "Fixture kept locked"}
+        <span className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ${completedAnalysis ? "bg-[#dcece8] text-[#1f625e]" : "bg-[#f8ebc8] text-[#765511]"}`}>
+          {completedAnalysis ? <ShieldCheck className="size-4" /> : <Lock className="size-4" />}
+          {statusLabel}
         </span>
       </div>
       <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -394,7 +479,141 @@ function SourceMapSummary({ processed, verified }: { processed: ProcessedSources
   );
 }
 
-function MismatchPanel({ onTryDemo }: { onTryDemo: () => void }) {
+function ProviderControls({
+  catalog,
+  target,
+  disabled,
+  onProviderChange,
+  onModelChange,
+}: {
+  catalog: PublicProviderCatalog;
+  target: AnalysisTarget | null;
+  disabled: boolean;
+  onProviderChange: (provider: PublicProvider) => void;
+  onModelChange: (model: string) => void;
+}) {
+  const selectedProvider = catalog.providers.find(
+    (provider) => provider.id === target?.provider,
+  );
+  const selectedModel = selectedProvider?.models.find(
+    (model) => model.id === target?.model,
+  );
+
+  return (
+    <fieldset className="mt-6 rounded-[24px] border border-[#14213d]/10 bg-white/55 p-4 sm:p-5">
+      <legend className="px-2 text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">
+        Optional live analysis
+      </legend>
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="block text-sm font-bold" htmlFor="analysis-provider">
+          AI provider
+          <select
+            id="analysis-provider"
+            value={target?.provider ?? ""}
+            disabled={disabled || catalog.providers.length === 0}
+            onChange={(event) => {
+              const provider = catalog.providers.find(
+                (candidate) => candidate.id === event.currentTarget.value,
+              );
+              if (provider !== undefined) onProviderChange(provider);
+            }}
+            className="mt-2 min-h-11 w-full rounded-xl border border-[#14213d]/15 bg-white px-3 text-sm text-[#14213d] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {catalog.providers.length === 0 && (
+              <option value="">No provider configured</option>
+            )}
+            {catalog.providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.label}{provider.configured ? "" : " — not configured"}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block text-sm font-bold" htmlFor="analysis-model">
+          AI model
+          <select
+            id="analysis-model"
+            value={target?.model ?? ""}
+            disabled={disabled || selectedProvider === undefined || selectedProvider.models.length === 0}
+            onChange={(event) => onModelChange(event.currentTarget.value)}
+            className="mt-2 min-h-11 w-full rounded-xl border border-[#14213d]/15 bg-white px-3 text-sm text-[#14213d] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {selectedProvider === undefined && <option value="">No model available</option>}
+            {selectedProvider?.models.map((model) => (
+              <option key={model.id} value={model.id}>{model.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2 text-xs leading-5 text-[#53627b] sm:flex-row sm:items-start sm:justify-between">
+        <p className="max-w-3xl">
+          {selectedModel?.description ?? selectedProvider?.description ?? "This deployment has no live provider settings."}
+        </p>
+        <span className={`inline-flex w-fit shrink-0 rounded-full px-2.5 py-1 font-bold ${selectedProvider?.configured ? "bg-[#dcece8] text-[#1f625e]" : "bg-[#f8ebc8] text-[#765511]"}`}>
+          {selectedProvider?.configured ? "Server key configured" : "Local source map only"}
+        </span>
+      </div>
+    </fieldset>
+  );
+}
+
+function PipelineErrorPanel({
+  error,
+  onRetryLive,
+  onRetryDemo,
+}: {
+  error: PipelineErrorState;
+  onRetryLive: () => void;
+  onRetryDemo: () => void;
+}) {
+  const liveFailure = error.kind === "live";
+  const demoFailure = error.kind === "demo";
+
+  return (
+    <section className="rounded-[24px] border border-[#ef6b5a]/35 bg-[#fff0ec] p-6" role="alert">
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-4">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#fee4dd] text-[#a83f32]"><AlertTriangle className="size-5" /></span>
+          <div>
+            <h2 className="font-bold">{liveFailure ? "Live analysis did not finish." : demoFailure ? "The included demo did not load." : "We could not process those sources."}</h2>
+            <p className="mt-2 text-sm leading-6 text-[#53627b]">{error.message}</p>
+            <p className="mt-2 text-xs text-[#53627b]">
+              {liveFailure
+                ? error.retryable
+                  ? "Your local source map is preserved. Retry, select another configured model, or use the included demo."
+                  : "Your local source map is preserved. Check the provider configuration, select another model, or use the included demo."
+                : demoFailure
+                  ? "Retry the same checked-in sample. No live model request will be made."
+                : "Replace the affected file and retry, or load the included demo."}
+            </p>
+          </div>
+        </div>
+        {liveFailure && error.retryable && (
+          <button type="button" onClick={onRetryLive} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
+            <RotateCcw className="size-4" /> Retry live analysis
+          </button>
+        )}
+        {demoFailure && (
+          <button type="button" onClick={onRetryDemo} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
+            <RotateCcw className="size-4" /> Retry included demo
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SourceMapOnlyPanel({
+  provider,
+  onTryDemo,
+  onAnalyzeLive,
+}: {
+  provider?: PublicProvider;
+  onTryDemo: () => void;
+  onAnalyzeLive?: () => void;
+}) {
   return (
     <section className="rounded-[28px] border border-[#daa83c]/35 bg-[#fff9e9] p-6 sm:p-8" role="status">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
@@ -403,21 +622,38 @@ function MismatchPanel({ onTryDemo }: { onTryDemo: () => void }) {
             <Lock className="size-5" aria-hidden="true" />
           </span>
           <div>
-            <h2 className="text-lg font-bold tracking-[-0.025em]">These sources parsed successfully—but they are not the sample.</h2>
-            <p className="mt-2 text-sm leading-6 text-[#53627b]">The simulated assessment is fingerprint-locked so it can never attach sample claims to arbitrary material. Your source map remains available above.</p>
+            <h2 className="text-lg font-bold tracking-[-0.025em]">Your local source map is ready.</h2>
+            <p className="mt-2 text-sm leading-6 text-[#53627b]">
+              {provider === undefined
+                ? "No live model provider is configured on this deployment, so no normalized chunks were sent."
+                : provider.configured
+                  ? `Nothing has been sent to ${provider.label} yet. Start live analysis when you are ready to transmit the normalized chunks.`
+                  : `${provider.label} is not configured on this deployment, so no normalized chunks were sent.`} The included demo still provides a complete, evidence-linked result without an API key.
+            </p>
           </div>
         </div>
-        <button type="button" onClick={onTryDemo} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
-          <Sparkles className="size-4" /> Load included demo
-        </button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {provider?.configured === true && onAnalyzeLive !== undefined && (
+            <button type="button" onClick={onAnalyzeLive} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white hover:bg-[#1f625e]">
+              <ScanText className="size-4" /> Analyze current source map with {provider.label}
+            </button>
+          )}
+          <button type="button" onClick={onTryDemo} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
+            <Sparkles className="size-4" /> Load included demo
+          </button>
+        </div>
       </div>
     </section>
   );
 }
 
-function ScorePanel({ result }: { result: DemoAnalysisResult }) {
+function ScorePanel({ result }: { result: AnalysisResult }) {
   const { score, counts, total } = result.metrics;
   const scoreLabel = score >= 80 ? "Strong coverage" : score >= 60 ? "Important gaps found" : "Needs a careful pass";
+  const originLabel =
+    result.origin.kind === "demo"
+      ? "Simulated demo analysis · real evidence"
+      : `Live analysis · ${result.origin.providerLabel} · ${result.origin.model}`;
   const countItems: readonly { status: AssessmentStatus; label: string; color: string }[] = [
     { status: "covered", label: "Covered", color: "bg-[#2f837c]" },
     { status: "partial", label: "Partial", color: "bg-[#daa83c]" },
@@ -444,7 +680,7 @@ function ScorePanel({ result }: { result: DemoAnalysisResult }) {
           <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-[#b8dcd6]">
-                <span className="size-1.5 rounded-full bg-[#ef6b5a]" /> Simulated analysis · real evidence
+                <span className="size-1.5 rounded-full bg-[#ef6b5a]" /> {originLabel}
               </p>
               <h2 id="coverage-title" className="mt-3 text-3xl font-bold tracking-[-0.045em] sm:text-4xl">{scoreLabel}</h2>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-white/65">{result.hydrated.summary}</p>
@@ -505,7 +741,7 @@ function IssueCard({ assessment, onOpen }: { assessment: HydratedConceptAssessme
   );
 }
 
-function IssuesPanel({ result, onOpen }: { result: DemoAnalysisResult; onOpen: (id: string) => void }) {
+function IssuesPanel({ result, onOpen }: { result: AnalysisResult; onOpen: (id: string) => void }) {
   const [filter, setFilter] = useState<IssueFilter>("all");
   const issues = useMemo(
     () => result.hydrated.assessments
@@ -646,6 +882,7 @@ function PatchPanel({ markdown }: { markdown: string }) {
 
 function EvidenceDrawer({ assessment, onClose }: { assessment: HydratedConceptAssessment; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const previouslyFocused =
@@ -654,6 +891,23 @@ function EvidenceDrawer({ assessment, onClose }: { assessment: HydratedConceptAs
         : null;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
+      if (event.key !== "Tab") return;
+
+      const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+      );
+      if (focusable === undefined || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (first === undefined || last === undefined) return;
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     document.body.style.overflow = "hidden";
@@ -668,7 +922,7 @@ function EvidenceDrawer({ assessment, onClose }: { assessment: HydratedConceptAs
   const status = assessment.status === "covered" ? null : STATUS_META[assessment.status];
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-end bg-[#091124]/55 backdrop-blur-sm sm:items-stretch" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <aside role="dialog" aria-modal="true" aria-labelledby="evidence-title" className="animate-rise flex max-h-[92vh] w-full flex-col rounded-t-[30px] bg-[#f7f4ec] shadow-2xl sm:max-h-none sm:max-w-[620px] sm:rounded-none sm:rounded-l-[30px]">
+      <aside ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="evidence-title" className="animate-rise flex max-h-[92vh] w-full flex-col rounded-t-[30px] bg-[#f7f4ec] shadow-2xl sm:max-h-none sm:max-w-[620px] sm:rounded-none sm:rounded-l-[30px]">
         <div className="flex items-start justify-between gap-5 border-b border-[#14213d]/10 p-6 sm:p-8">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#2f837c]">Evidence trail</p>
@@ -695,7 +949,7 @@ function EvidenceDrawer({ assessment, onClose }: { assessment: HydratedConceptAs
           ))}
         </div>
         <div className="border-t border-[#14213d]/10 bg-white/65 p-5 sm:px-8">
-          <p className="flex items-start gap-2 text-xs leading-5 text-[#53627b]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#2f837c]" /> Names, locators, headings, and excerpts come from the files just parsed—not from the fixture.</p>
+          <p className="flex items-start gap-2 text-xs leading-5 text-[#53627b]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#2f837c]" /> Names, locators, headings, and excerpts come from the files just parsed—not from model output.</p>
         </div>
       </aside>
     </div>
@@ -705,8 +959,8 @@ function EvidenceDrawer({ assessment, onClose }: { assessment: HydratedConceptAs
 function EmptyPreview() {
   const stages = [
     { number: "01", title: "Extract", text: "PDF pages and numbered paragraphs" },
-    { number: "02", title: "Verify", text: "Ordered normalized fingerprints" },
-    { number: "03", title: "Hydrate", text: "Trusted evidence and Markdown" },
+    { number: "02", title: "Analyze", text: "No-key demo or a configured live model" },
+    { number: "03", title: "Hydrate", text: "Local evidence locators and Markdown" },
   ];
   return (
     <section className="rounded-[28px] border border-[#14213d]/10 bg-[#eee9dd]/65 p-6 sm:p-8" aria-label="How the demo works">
@@ -724,19 +978,28 @@ function EmptyPreview() {
   );
 }
 
-export function LectureWeaver() {
+export function LectureWeaver(
+  { providers = EMPTY_PROVIDER_CATALOG }: { providers?: PublicProviderCatalog } = {},
+) {
   const [files, setFiles] = useState<Partial<SourceFiles>>({});
   const [processed, setProcessed] = useState<ProcessedSources | null>(null);
-  const [result, setResult] = useState<DemoAnalysisResult | null>(null);
+  const [result, setResult] = useState<AnalysisResult | null>(null);
   const [mode, setMode] = useState<PipelineMode>("idle");
+  const [loadingKind, setLoadingKind] = useState<LoadingKind>("local");
   const [loadingMessage, setLoadingMessage] = useState("Checking file safety…");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<PipelineErrorState | null>(null);
+  const [target, setTarget] = useState<AnalysisTarget | null>(() =>
+    defaultTarget(providers),
+  );
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<string | null>(null);
   const [inputKey, setInputKey] = useState(0);
   const outputRef = useRef<HTMLDivElement>(null);
   const loading = mode === "loading";
   const ready = hasAllFiles(files);
-
+  const selectedProvider = useMemo(
+    () => providers.providers.find((provider) => provider.id === target?.provider),
+    [providers, target],
+  );
   const selectedAssessment = useMemo(
     () => result?.hydrated.assessments.find((assessment) => assessment.id === selectedAssessmentId) ?? null,
     [result, selectedAssessmentId],
@@ -748,13 +1011,55 @@ export function LectureWeaver() {
     setResult(null);
     setMode("idle");
     setError(null);
+    setSelectedAssessmentId(null);
   };
 
-  const runPipeline = async (sourceFiles: SourceFiles) => {
+  const scrollToOutput = () => {
+    window.setTimeout(
+      () => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      50,
+    );
+  };
+
+  const analyzeProcessedSources = async (
+    nextProcessed: ProcessedSources,
+    nextTarget: AnalysisTarget,
+    providerLabel: string,
+  ) => {
+    setLoadingKind("live");
+    setLoadingMessage(`Analyzing normalized chunks with ${providerLabel} · ${nextTarget.model}…`);
+    await nextPaint();
+
+    try {
+      const nextResult = await requestLiveAnalysis(nextProcessed, nextTarget);
+      setResult(nextResult);
+      setMode("ready");
+    } catch (analysisError: unknown) {
+      setResult(null);
+      setError(liveError(analysisError));
+      setMode("error");
+    }
+    scrollToOutput();
+  };
+
+  const runManualPipeline = async (
+    sourceFiles: SourceFiles,
+    requestLive: boolean,
+  ) => {
+    const nextTarget = target;
+    const provider = selectedProvider;
+    const canAnalyzeLive =
+      requestLive &&
+      nextTarget !== null &&
+      provider?.configured === true &&
+      provider.models.some((model) => model.id === nextTarget.model);
+
     setMode("loading");
+    setLoadingKind(canAnalyzeLive ? "live" : "local");
     setError(null);
     setResult(null);
     setProcessed(null);
+    setSelectedAssessmentId(null);
     setLoadingMessage("Validating three local files…");
     await nextPaint();
 
@@ -762,40 +1067,87 @@ export function LectureWeaver() {
       setLoadingMessage("Extracting pages and paragraph structure…");
       const nextProcessed = await processSourceFiles(sourceFiles);
       setProcessed(nextProcessed);
-      setLoadingMessage("Verifying the sample and hydrating evidence…");
-      await nextPaint();
 
-      try {
-        const nextResult = await runFixtureAnalysis(nextProcessed);
-        setResult(nextResult);
-        setMode("ready");
-      } catch (fixtureError: unknown) {
-        if (fixtureError instanceof DemoFingerprintMismatchError) {
-          setMode("source-map");
-        } else {
-          throw fixtureError;
-        }
+      if (canAnalyzeLive && nextTarget !== null && provider !== undefined) {
+        await analyzeProcessedSources(nextProcessed, nextTarget, provider.label);
+      } else {
+        setLoadingMessage("Finalizing the local source map…");
+        await nextPaint();
+        setMode("source-map");
+        scrollToOutput();
       }
-      window.setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     } catch (pipelineError: unknown) {
-      setError(errorMessage(pipelineError));
+      setError(processingError(pipelineError));
       setMode("error");
+      scrollToOutput();
     }
   };
 
   const tryDemo = async () => {
     setMode("loading");
+    setLoadingKind("demo");
     setError(null);
+    setResult(null);
+    setProcessed(null);
+    setSelectedAssessmentId(null);
     setLoadingMessage("Loading the included sample files…");
     await nextPaint();
     try {
       const demoFiles = await loadDemoFiles();
       setFiles(demoFiles);
-      await runPipeline(demoFiles);
+      setLoadingMessage("Extracting pages and paragraph structure…");
+      const nextProcessed = await processSourceFiles(demoFiles);
+      setProcessed(nextProcessed);
+      setLoadingMessage("Verifying the sample fingerprint and hydrating evidence…");
+      await nextPaint();
+      const demoResult = await runFixtureAnalysis(nextProcessed);
+      setResult(demoResult);
+      setMode("ready");
+      scrollToOutput();
     } catch (demoError: unknown) {
-      setError(errorMessage(demoError));
+      setError(demoPipelineError(demoError));
       setMode("error");
+      scrollToOutput();
     }
+  };
+
+  const retryLiveAnalysis = async () => {
+    if (
+      processed === null ||
+      target === null ||
+      selectedProvider?.configured !== true ||
+      !selectedProvider.models.some((model) => model.id === target.model)
+    ) {
+      setError(null);
+      setMode(processed === null ? "idle" : "source-map");
+      return;
+    }
+
+    setMode("loading");
+    setError(null);
+    setResult(null);
+    setSelectedAssessmentId(null);
+    await analyzeProcessedSources(processed, target, selectedProvider.label);
+  };
+
+  const recoverAfterTargetChange = () => {
+    if (error?.kind !== "live") return;
+    setError(null);
+    setMode(processed === null ? "idle" : "source-map");
+  };
+
+  const chooseProvider = (provider: PublicProvider) => {
+    const model =
+      provider.models.find((candidate) => candidate.id === provider.defaultModel) ??
+      provider.models[0];
+    setTarget(model === undefined ? null : { provider: provider.id, model: model.id });
+    recoverAfterTargetChange();
+  };
+
+  const chooseModel = (model: string) => {
+    if (selectedProvider === undefined) return;
+    setTarget({ provider: selectedProvider.id, model });
+    recoverAfterTargetChange();
   };
 
   const reset = () => {
@@ -819,7 +1171,7 @@ export function LectureWeaver() {
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">Your materials</p>
             <h2 id="upload-title" className="mt-2 text-3xl font-bold tracking-[-0.045em] sm:text-4xl">Build a trusted source map.</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#53627b]">Choose all three files. Parsing happens in this tab; nothing is sent to an application server.</p>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#53627b]">Choose all three files. Raw files are parsed in this tab; only normalized text chunks are sent when you run a configured live model.</p>
           </div>
           {(Object.keys(files).length > 0 || processed) && (
             <button type="button" onClick={reset} disabled={loading} className="inline-flex min-h-10 w-fit items-center gap-2 rounded-xl border border-[#14213d]/15 bg-white/60 px-4 text-sm font-bold hover:bg-white disabled:opacity-50">
@@ -834,33 +1186,63 @@ export function LectureWeaver() {
           ))}
         </div>
 
+        <ProviderControls
+          catalog={providers}
+          target={target}
+          disabled={loading}
+          onProviderChange={chooseProvider}
+          onModelChange={chooseModel}
+        />
+
         <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-[#14213d]/10 bg-white/50 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="flex items-center gap-2 text-xs leading-5 text-[#53627b]"><Lock className="size-4 shrink-0 text-[#2f837c]" /> Local-only processing · PDF 10 MiB · text 1 MiB each · no silent truncation</p>
-          <button
-            type="button"
-            disabled={!ready || loading}
-            onClick={() => { if (ready) void runPipeline(files); }}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white transition hover:bg-[#1f625e] disabled:cursor-not-allowed disabled:bg-[#14213d]/20"
-          >
-            {loading ? <LoaderCircle className="size-4 animate-spin" /> : <ScanText className="size-4" />}
-            Process sources
-          </button>
+          <p className="flex items-center gap-2 text-xs leading-5 text-[#53627b]"><Lock className="size-4 shrink-0 text-[#2f837c]" /> Raw files stay local · normalized chunks are sent only for configured live analysis · no silent truncation</p>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              disabled={!ready || loading}
+              onClick={() => { if (ready) void runManualPipeline(files, false); }}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#14213d]/15 bg-white px-5 text-sm font-bold text-[#14213d] transition hover:bg-[#f7f4ec] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading && loadingKind === "local" ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+              Build local source map
+            </button>
+            {selectedProvider?.configured === true && target !== null && (
+              <button
+                type="button"
+                disabled={!ready || loading}
+                onClick={() => { if (ready) void runManualPipeline(files, true); }}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white transition hover:bg-[#1f625e] disabled:cursor-not-allowed disabled:bg-[#14213d]/20"
+              >
+                {loading && loadingKind === "live" ? <LoaderCircle className="size-4 animate-spin" /> : <ScanText className="size-4" />}
+                Extract and analyze with {selectedProvider.label}
+              </button>
+            )}
+          </div>
         </div>
       </section>
 
       <div ref={outputRef} className="scroll-mt-5">
         <div className="mx-auto max-w-[1440px] space-y-8 px-5 pb-20 sm:px-8 lg:px-12">
-          {mode === "loading" && <LoadingPanel message={loadingMessage} />}
+          {mode === "loading" && <LoadingPanel message={loadingMessage} kind={loadingKind} />}
           {mode === "error" && error && (
-            <section className="rounded-[24px] border border-[#ef6b5a]/35 bg-[#fff0ec] p-6" role="alert">
-              <div className="flex items-start gap-4">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#fee4dd] text-[#a83f32]"><AlertTriangle className="size-5" /></span>
-                <div><h2 className="font-bold">We could not process those sources.</h2><p className="mt-2 text-sm leading-6 text-[#53627b]">{error}</p><p className="mt-2 text-xs text-[#53627b]">Replace the affected file and retry, or load the included demo.</p></div>
-              </div>
-            </section>
+            <PipelineErrorPanel
+              error={error}
+              onRetryLive={() => void retryLiveAnalysis()}
+              onRetryDemo={() => void tryDemo()}
+            />
           )}
-          {processed && mode !== "loading" && <SourceMapSummary processed={processed} verified={mode === "ready"} />}
-          {mode === "source-map" && <MismatchPanel onTryDemo={() => void tryDemo()} />}
+          {processed && mode !== "loading" && <SourceMapSummary processed={processed} origin={result?.origin ?? null} />}
+          {mode === "source-map" && (
+            <SourceMapOnlyPanel
+              provider={selectedProvider}
+              onTryDemo={() => void tryDemo()}
+              onAnalyzeLive={
+                selectedProvider?.configured === true
+                  ? () => void retryLiveAnalysis()
+                  : undefined
+              }
+            />
+          )}
           {mode === "idle" && <EmptyPreview />}
 
           {result && mode === "ready" && (
@@ -875,8 +1257,8 @@ export function LectureWeaver() {
 
       <footer className="border-t border-[#14213d]/10 bg-[#eee9dd]/70">
         <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 py-8 text-xs text-[#53627b] sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-12">
-          <div className="flex items-center gap-3"><LogoMark /><span><strong className="text-[#14213d]">LectureWeaver</strong><br />OpenAI Build Week · Education</span></div>
-          <p className="max-w-xl leading-5 sm:text-right">Milestone 1 uses a schema-valid simulated analysis only for the fingerprint-matched sample. No API key, account, database, or application upload.</p>
+          <div className="flex items-center gap-3"><LogoMark /><span><strong className="text-[#14213d]">LectureWeaver</strong><br />Milestone 2 · Multi-provider analysis</span></div>
+          <p className="max-w-xl leading-5 sm:text-right">Try demo remains fixture-only and needs no API key. Live analysis sends normalized chunks—not raw files—to the selected server-configured provider.</p>
         </div>
       </footer>
 

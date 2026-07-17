@@ -1,10 +1,7 @@
 import { ModelAnalysisSchema, type SourceType } from "@/domain";
 import {
-  calculateCoverageMetrics,
-  generateMarkdownPatch,
-  hydrateAnalysis,
-  type CoverageMetrics,
-  type HydratedAnalysis,
+  buildAnalysisResult,
+  type AnalysisResult,
 } from "@/lib/analysis";
 import {
   processSourceFiles,
@@ -99,10 +96,7 @@ export function parseDemoFixture(input: unknown = fixtureJson) {
   return ModelAnalysisSchema.parse(input);
 }
 
-export type DemoAnalysisResult = {
-  hydrated: HydratedAnalysis;
-  metrics: CoverageMetrics;
-  markdown: string;
+export type DemoAnalysisResult = AnalysisResult & {
   fingerprints: DemoFingerprints;
 };
 
@@ -125,11 +119,13 @@ export async function runFixtureAnalysis(
     );
   }
 
-  const hydrated = hydrateAnalysis(parseDemoFixture(), processed.chunks);
+  const result = buildAnalysisResult(
+    parseDemoFixture(),
+    processed.chunks,
+    { kind: "demo" },
+  );
   return {
-    hydrated,
-    metrics: calculateCoverageMetrics(hydrated.assessments),
-    markdown: generateMarkdownPatch(hydrated),
+    ...result,
     fingerprints,
   };
 }

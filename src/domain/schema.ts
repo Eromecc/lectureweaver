@@ -1,6 +1,38 @@
 import { z } from "zod";
 
 const nonEmptyText = z.string().trim().min(1);
+const safeMarkdownPatch = nonEmptyText.superRefine((value, context) => {
+  if (/<\/?[A-Za-z][^>]*>|<!--/i.test(value)) {
+    context.addIssue({
+      code: "custom",
+      message: "Suggested patches cannot contain raw HTML or autolinks.",
+    });
+  }
+  if (/!\s*\[/.test(value)) {
+    context.addIssue({
+      code: "custom",
+      message: "Suggested patches cannot contain Markdown images.",
+    });
+  }
+  if (/\[[^\]\n]+\]\s*(?:\(|\[)/.test(value)) {
+    context.addIssue({
+      code: "custom",
+      message: "Suggested patches cannot contain Markdown links.",
+    });
+  }
+  if (/^\s{0,3}\[[^\]\n]+\]:/m.test(value)) {
+    context.addIssue({
+      code: "custom",
+      message: "Suggested patches cannot contain link reference definitions.",
+    });
+  }
+  if (/(?:https?|ftp):\/\/|\bmailto:|(?:^|\s)www\./i.test(value)) {
+    context.addIssue({
+      code: "custom",
+      message: "Suggested patches cannot contain bare external URLs.",
+    });
+  }
+});
 
 export const SourceTypeSchema = z.enum(["slides", "transcript", "notes"]);
 
@@ -39,7 +71,7 @@ export const ConceptAssessmentSchema = z
     status: AssessmentStatusSchema,
     explanation: nonEmptyText,
     evidenceRefs: z.array(EvidenceRefSchema).min(1),
-    suggestedPatch: nonEmptyText.optional(),
+    suggestedPatch: safeMarkdownPatch.optional(),
   })
   .strict()
   .superRefine((assessment, context) => {

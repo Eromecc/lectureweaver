@@ -3,12 +3,21 @@ import userEvent from "@testing-library/user-event";
 import type { SVGProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ModelAnalysisSchema, SourceChunkListSchema } from "@/domain";
+import {
+  ModelAnalysisSchema,
+  PublicProviderCatalogSchema,
+  SourceChunkListSchema,
+} from "@/domain";
 import {
   calculateCoverageMetrics,
   generateMarkdownPatch,
   hydrateAnalysis,
+  type AnalysisResult,
 } from "@/lib/analysis";
+import {
+  LiveAnalysisError,
+  requestLiveAnalysis,
+} from "@/lib/ai/client";
 import type { DemoAnalysisResult } from "@/lib/demo";
 import {
   loadDemoFiles,
@@ -63,6 +72,16 @@ vi.mock("@/lib/extraction", async () => {
   return {
     ...actual,
     processSourceFiles: vi.fn(),
+  };
+});
+
+vi.mock("@/lib/ai/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/ai/client")>(
+    "@/lib/ai/client",
+  );
+  return {
+    ...actual,
+    requestLiveAnalysis: vi.fn(),
   };
 });
 
@@ -175,6 +194,7 @@ const processed: ProcessedSources = {
 };
 
 const result: DemoAnalysisResult = {
+  origin: { kind: "demo" },
   hydrated,
   metrics: calculateCoverageMetrics(modelAnalysis.assessments),
   markdown: generateMarkdownPatch(hydrated),
@@ -185,9 +205,75 @@ const result: DemoAnalysisResult = {
   },
 };
 
+const liveResult: AnalysisResult = {
+  hydrated,
+  metrics: calculateCoverageMetrics(modelAnalysis.assessments),
+  markdown: generateMarkdownPatch(hydrated),
+  origin: {
+    kind: "live",
+    provider: "deepseek",
+    providerLabel: "DeepSeek",
+    model: "deepseek-v4-pro",
+  },
+};
+
+const configuredProviders = PublicProviderCatalogSchema.parse({
+  providers: [
+    {
+      id: "deepseek",
+      label: "DeepSeek",
+      description: "Mocked live provider.",
+      configured: true,
+      defaultModel: "deepseek-v4-pro",
+      models: [
+        {
+          id: "deepseek-v4-pro",
+          label: "DeepSeek V4 Pro",
+          description: "Mocked live model.",
+        },
+      ],
+    },
+  ],
+});
+const configuredDeepSeek = configuredProviders.providers[0];
+if (configuredDeepSeek === undefined) {
+  throw new Error("The UI test catalog must include DeepSeek.");
+}
+
+const multiProviderCatalog = PublicProviderCatalogSchema.parse({
+  providers: [
+    configuredDeepSeek,
+    {
+      id: "kimi",
+      label: "Kimi",
+      description: "Mocked alternate provider.",
+      configured: true,
+      defaultModel: "kimi-k3",
+      models: [
+        {
+          id: "kimi-k3",
+          label: "Kimi K3",
+          description: "Mocked alternate model.",
+        },
+      ],
+    },
+  ],
+});
+
+const kimiLiveResult: AnalysisResult = {
+  ...liveResult,
+  origin: {
+    kind: "live",
+    provider: "kimi",
+    providerLabel: "Kimi",
+    model: "kimi-k3",
+  },
+};
+
 const mockLoadDemoFiles = vi.mocked(loadDemoFiles);
 const mockProcessSourceFiles = vi.mocked(processSourceFiles);
 const mockRunFixtureAnalysis = vi.mocked(runFixtureAnalysis);
+const mockRequestLiveAnalysis = vi.mocked(requestLiveAnalysis);
 
 function sourceFiles(slidesName = "sample.pdf"): SourceFiles {
   return {
@@ -233,7 +319,7 @@ async function renderReady(): Promise<ReturnType<typeof userEvent.setup>> {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   Object.defineProperty(window, "requestAnimationFrame", {
     configurable: true,
     value: (callback: FrameRequestCallback) => {
@@ -272,10 +358,10 @@ describe("LectureWeaver client workflow", () => {
     mockProcessSourceFiles.mockReturnValue(processing.promise);
     mockRunFixtureAnalysis.mockResolvedValue(result);
 
-    render(<LectureWeaver />);
+    render(<LectureWeaver providers={configuredProviders} />);
 
     expect(
-      screen.getByRole("button", { name: "Process sources" }),
+      screen.getByRole("button", { name: "Build local source map" }),
     ).toBeDisabled();
     expect(screen.getByLabelText("Choose slides file")).toHaveAttribute(
       "accept",
@@ -294,7 +380,7 @@ describe("LectureWeaver client workflow", () => {
       screen.getByText("Extracting pages and paragraph structure…").closest("section"),
     ).toHaveAttribute("aria-busy", "true");
     expect(
-      screen.getByRole("button", { name: "Process sources" }),
+      screen.getByRole("button", { name: "Build local source map" }),
     ).toBeDisabled();
 
     await act(async () => {
@@ -310,6 +396,7 @@ describe("LectureWeaver client workflow", () => {
     expect(screen.getByText("4 concepts audited")).toBeVisible();
     expect(screen.getByText("Sample fingerprint verified")).toBeVisible();
     expect(screen.getAllByText("sample.pdf").length).toBeGreaterThan(0);
+    expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
   });
 
   it("filters the actionable review queue without hard-coded result cards", async () => {
@@ -381,6 +468,15 @@ describe("LectureWeaver client workflow", () => {
       within(dialog).getByText(/supplies the correction loop and its order/),
     ).toBeVisible();
 
+    await user.tab();
+    expect(
+      within(dialog).getByRole("button", { name: "Close evidence panel" }),
+    ).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(
+      within(dialog).getByRole("button", { name: "Close evidence panel" }),
+    ).toHaveFocus();
+
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(openButton).toHaveFocus();
@@ -403,7 +499,7 @@ describe("LectureWeaver client workflow", () => {
       .mockResolvedValueOnce(processed);
     mockRunFixtureAnalysis.mockResolvedValue(result);
 
-    render(<LectureWeaver />);
+    render(<LectureWeaver providers={configuredProviders} />);
     await user.upload(screen.getByLabelText("Choose slides file"), invalidFiles.slides);
     await user.upload(
       screen.getByLabelText("Choose transcript file"),
@@ -413,7 +509,9 @@ describe("LectureWeaver client workflow", () => {
       screen.getByLabelText("Choose existing notes file"),
       invalidFiles.notes,
     );
-    await user.click(screen.getByRole("button", { name: "Process sources" }));
+    await user.click(
+      screen.getByRole("button", { name: "Build local source map" }),
+    );
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
@@ -424,13 +522,234 @@ describe("LectureWeaver client workflow", () => {
     await user.upload(screen.getByLabelText("Choose slides file"), replacementPdf);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByText("replacement.pdf")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Process sources" }));
+    await user.click(
+      screen.getByRole("button", { name: "Build local source map" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Your local source map is ready.",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("Local source map ready")).toBeVisible();
+    expect(mockRunFixtureAnalysis).not.toHaveBeenCalled();
+    expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
+    const retriedFiles = mockProcessSourceFiles.mock.calls.at(-1)?.[0];
+    expect(retriedFiles?.slides).toBe(replacementPdf);
+  });
+
+  it("runs configured live analysis with the selected provider and model", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis.mockResolvedValue(liveResult);
+
+    render(<LectureWeaver providers={configuredProviders} />);
+
+    expect(screen.getByLabelText("AI provider")).toHaveValue("deepseek");
+    expect(screen.getByLabelText("AI model")).toHaveValue(
+      "deepseek-v4-pro",
+    );
+    await user.upload(
+      screen.getByLabelText("Choose slides file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Extract and analyze with DeepSeek",
+      }),
+    );
 
     expect(
       await screen.findByRole("heading", { name: "Needs a careful pass" }),
     ).toBeVisible();
-    const retriedFiles = mockProcessSourceFiles.mock.calls.at(-1)?.[0];
-    expect(retriedFiles?.slides).toBe(replacementPdf);
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(processed, {
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+    });
+    expect(
+      screen.getByText(
+        "Live analysis · DeepSeek · deepseek-v4-pro",
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("DeepSeek · deepseek-v4-pro")).toBeVisible();
+    expect(mockRunFixtureAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("preserves the source map after a live failure and retries in place", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis
+      .mockRejectedValueOnce(
+        new LiveAnalysisError(
+          "rate_limited",
+          "DeepSeek is rate-limiting analysis requests. Please retry later.",
+          true,
+        ),
+      )
+      .mockResolvedValueOnce(liveResult);
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    await user.upload(
+      screen.getByLabelText("Choose slides file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Extract and analyze with DeepSeek",
+      }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("rate-limiting analysis requests");
+    expect(screen.getByText("Local source map ready")).toBeVisible();
+    expect(screen.getAllByText("sample.pdf").length).toBeGreaterThan(0);
+
+    await user.click(
+      screen.getByRole("button", { name: "Retry live analysis" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Needs a careful pass" }),
+    ).toBeVisible();
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(2);
+    expect(mockProcessSourceFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides retry for non-retryable live failures", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis.mockRejectedValue(
+      new LiveAnalysisError(
+        "provider_balance",
+        "DeepSeek reports insufficient API balance.",
+        false,
+      ),
+    );
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    await user.upload(
+      screen.getByLabelText("Choose slides file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Extract and analyze with DeepSeek",
+      }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "insufficient API balance",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Retry live analysis" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Local source map ready")).toBeVisible();
+  });
+
+  it("switches provider after an error and analyzes the preserved source map", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis
+      .mockRejectedValueOnce(
+        new LiveAnalysisError(
+          "rate_limited",
+          "DeepSeek is temporarily rate-limited.",
+          true,
+        ),
+      )
+      .mockResolvedValueOnce(kimiLiveResult);
+
+    render(<LectureWeaver providers={multiProviderCatalog} />);
+    await user.upload(
+      screen.getByLabelText("Choose slides file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Extract and analyze with DeepSeek",
+      }),
+    );
+    await screen.findByRole("alert");
+
+    await user.selectOptions(screen.getByLabelText("AI provider"), "kimi");
+    const preservedSourceAction = await screen.findByRole("button", {
+      name: "Analyze current source map with Kimi",
+    });
+    expect(screen.getByText(/Nothing has been sent to Kimi yet/)).toBeVisible();
+    await user.click(preservedSourceAction);
+
+    expect(
+      await screen.findByText("Live analysis · Kimi · kimi-k3"),
+    ).toBeVisible();
+    expect(mockRequestLiveAnalysis).toHaveBeenLastCalledWith(processed, {
+      provider: "kimi",
+      model: "kimi-k3",
+    });
+    expect(mockProcessSourceFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a failed no-key demo without calling live analysis", async () => {
+    const user = userEvent.setup();
+    const files = sourceFiles();
+    mockLoadDemoFiles
+      .mockRejectedValueOnce(new Error("The sample asset could not be loaded."))
+      .mockResolvedValueOnce(files);
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRunFixtureAnalysis.mockResolvedValue(result);
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    await user.click(
+      screen.getByRole("button", { name: "Try the sample lecture" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "sample asset could not be loaded",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Retry included demo" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Needs a careful pass" }),
+    ).toBeVisible();
+    expect(mockLoadDemoFiles).toHaveBeenCalledTimes(2);
+    expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
   });
 
   it("copies and downloads the exact generated Markdown string", async () => {

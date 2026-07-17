@@ -4,93 +4,129 @@
 
 **Category:** Education
 
-**Milestone:** 1 — deployable, no-API-key sample demo
+**Milestone:** 2 — no-key demo plus optional multi-provider live analysis
 
-LectureWeaver helps students verify whether important information from lecture slides and transcripts has been omitted, partially covered, or contradicted in their existing notes.
+LectureWeaver helps students verify whether important information from lecture slides and transcripts is covered, partially covered, missing, or contradicted in their existing notes.
 
-LectureWeaver is not a general summarizer. Its core promise is completeness-first, evidence-linked review: every identified concept must be auditable against trusted locators produced from the user's parsed source files.
+It is not a general summarizer. Its core promise is completeness-first, evidence-linked review: every finding must resolve to a trusted locator produced from the user's parsed source files.
 
-## Audience and problem
+## Audience and milestone outcome
 
-The primary user is a student who has lecture slides, a transcript, and Markdown notes but cannot quickly tell whether the notes preserve the important teaching content. Manual comparison is slow, and an ungrounded generated summary can conceal omissions or fabricate support.
+The primary user has lecture slides, a transcript, and Markdown notes but cannot quickly determine whether the notes preserve important teaching content. Manual comparison is slow, while ungrounded generation can hide omissions or fabricate support.
 
-The Milestone 1 demonstration must let a judge understand the value in under two minutes without configuring a service or API key.
+Milestone 2 serves two entry points:
+
+1. A judge or visitor can understand the product in under two minutes through **Try demo**, with no key, account, or model request.
+2. A deployment owner may configure OpenAI, DeepSeek, and/or Kimi server credentials so users can analyze their own normalized source chunks.
 
 ## Product principles
 
 1. **Completeness before condensation.** Classify coverage; do not merely rewrite the lecture.
-2. **Evidence before assertion.** Every assessment resolves to freshly parsed chunks with visible page or paragraph locators.
-3. **Trusted provenance.** The analysis fixture may reference chunk IDs, but it never owns source names, locators, heading paths, or excerpt text.
-4. **Deterministic where possible.** Application code calculates the score, counts, ordering, evidence hydration, and Markdown output.
-5. **Fail closed.** Invalid, oversized, textless, or fingerprint-mismatched input never receives a plausible-looking sample result.
-6. **Local by default.** This milestone processes files in browser memory and has no API route, account, database, or persistence.
+2. **Evidence before assertion.** Every assessment resolves to current parsed chunks with visible locators.
+3. **Trusted provenance.** Models may return chunk IDs and relevance, but never own filenames, locators, heading paths, or excerpts.
+4. **Deterministic where possible.** Application code calculates score, counts, ordering, evidence hydration, and Markdown.
+5. **Fail closed.** Invalid input or provider output never becomes a plausible-looking result.
+6. **Local extraction.** Raw files are parsed in the browser; only normalized chunks are sent for an explicitly selected, configured live analysis.
+7. **Optional service.** No provider credential is required for the build, source-map flow, or sample demo.
+8. **No hidden persistence.** Milestone 2 adds no account, database, saved history, analytics, or application-level source storage.
 
 ## Core user flows
 
-### One-click sample demonstration
+### One-click no-key demonstration
 
 1. The user selects **Try demo**.
-2. The browser fetches the checked-in synthetic PDF, TXT transcript, and Markdown notes and wraps them as real `File` objects.
+2. The browser loads the checked-in synthetic PDF, TXT transcript, and Markdown notes as real `File` objects.
 3. The production validation, extraction, normalization, and chunking pipeline processes all three files.
-4. Ordered normalized source fingerprints are compared with the checked-in manifest.
-5. A strict Zod schema validates the simulated analysis fixture, then semantic rules validate its references.
-6. The app hydrates trusted evidence, calculates the score and counts, and assembles the Markdown additions.
+4. Ordered normalized fingerprints are compared with the checked-in manifest.
+5. Strict Zod and semantic rules validate the simulated fixture.
+6. The app hydrates trusted evidence, calculates score/counts, and assembles deterministic Markdown.
 7. The user filters findings, opens evidence, and copies or downloads the generated Markdown.
 
-### User-selected material
+This flow never calls a live provider, even when provider keys exist.
 
-1. The user selects one PDF lecture, one TXT transcript, and one Markdown notes file.
-2. The browser validates and parses the files locally.
-3. Valid input displays a source-map summary with derived locators and heading context.
-4. Because arbitrary input cannot match the sample manifest, the app does not apply the simulated fixture. It explains the mismatch and offers the included demo.
-5. Replacing or resetting files clears stale derived output.
+### Live analysis of user-selected material
+
+1. The user selects one text-based PDF lecture, one UTF-8 TXT transcript, and one UTF-8 Markdown notes file.
+2. The browser validates and parses the raw files locally into normalized chunks with structural IDs and locators.
+3. The user chooses a provider/model exposed by the deployment catalog.
+4. If that provider is configured, the browser posts only the normalized chunks and selected target to `/api/analyze`.
+5. The server resolves its own allowlisted provider endpoint and server-only key. The client cannot submit a key or arbitrary base URL.
+6. The adapter requests a structured analysis and maps provider failures to a stable application error contract.
+7. The result must pass the wire Zod schema, domain Zod schema, uniqueness/reference validation, and evidence/status semantic rules.
+8. The browser hydrates trusted evidence from its local chunk map and calculates deterministic score, counts, ordering, and Markdown.
+
+### Unconfigured or failed live analysis
+
+- If the selected provider has no server key, no chunks are sent; valid input displays a local source map and offers **Try demo**.
+- If a provider rejects, times out, rate-limits, truncates, or returns invalid output, the source map remains available and the user can retry or choose another configured provider.
+- Replacing or resetting files clears stale analysis output.
 
 ## Functional requirements
 
-### Input and validation
+### Input, extraction, and limits
 
-- Accept exactly PDF for slides, TXT for the transcript, and Markdown (`.md`) for notes.
-- Validate extension, compatible MIME type, file size, PDF signature, and UTF-8/binary safety.
-- Enforce limits of 10 MiB for PDF, 1 MiB per text file, 120,000 normalized characters total, 100 chunks total, and 1,800 characters per chunk.
+- Accept exactly PDF for slides, TXT for transcript, and Markdown (`.md`) for notes.
+- Validate extension, MIME compatibility, file size, PDF signature, and UTF-8/binary safety.
+- Enforce 10 MiB PDF, 1 MiB per text file, 120,000 normalized characters total, 100 chunks total, and 1,800 characters per chunk.
 - Reject over-limit content instead of truncating it.
 - Reject malformed, encrypted, image-only, or textless PDFs with an actionable message; OCR is out of scope.
+- Extract PDF text by page, transcript text into numbered non-empty paragraphs, and notes into numbered paragraphs with active Markdown heading context.
+- Recognize ATX and Setext headings only outside fenced code blocks.
+- Generate structural chunk IDs and locators from parsed structure, never from fixture or provider output.
 
-### Extraction and source map
+### Provider catalog and configuration
 
-- Extract PDF text page by page in the browser and preserve page locators.
-- Normalize the transcript into numbered non-empty paragraphs.
-- Normalize notes into numbered paragraphs while preserving active Markdown heading context.
-- Recognize ATX and Setext headings outside fenced code blocks.
-- Generate stable structural chunk IDs and human-readable locators from parsed structure, not from fixture content.
-- Normalize line endings and whitespace consistently so fingerprints and fixture references are reproducible.
+- Provider keys are optional, server-only environment variables.
+- The catalog reports configured status and an allowlisted set of model IDs without exposing any credential.
+- Environment defaults are:
 
-### Domain and simulated analysis
+  | Provider | Key | Model variable | Default |
+  | --- | --- | --- | --- |
+  | OpenAI | `OPENAI_API_KEY` | `OPENAI_MODEL` | `gpt-5.6` |
+  | DeepSeek | `DEEPSEEK_API_KEY` | `DEEPSEEK_MODEL` | `deepseek-v4-flash` |
+  | Kimi | `KIMI_API_KEY` | `KIMI_MODEL` | `kimi-k3` |
 
-The Zod-backed domain model is the single source of truth for runtime validation and TypeScript inference. It represents:
+- `KIMI_REGION=cn|global` selects the official China or global Kimi endpoint and defaults to `cn`; any other nonblank value fails closed before transmission.
+- ChatGPT/Codex subscriptions and login tokens are not API credentials and cannot fund application API calls.
 
-- source types: slides, transcript, notes;
-- assessment statuses: covered, partial, missing, contradiction;
-- importance: core or supporting;
-- source chunks with identity, source metadata, locator, optional heading path, and text;
-- evidence references with a chunk ID and relevance explanation;
-- concept assessments with explanation, evidence, and optional patch;
-- a model analysis with summary and assessments.
+### Provider contracts
 
-IDs must be unique. Covered assessments have no suggested patch. Partial, missing, and contradiction assessments require a nonblank patch. Evidence rules are:
+- **OpenAI:** use the Responses API, `store: false`, a bounded output budget, and Zod-derived strict Structured Outputs. Detect explicit refusal and incomplete/length failures.
+- **DeepSeek:** use OpenAI-compatible Chat Completions JSON Output with thinking disabled for this extraction contract. Because JSON Output does not guarantee schema adherence and may return empty content, parse and validate locally and fail closed.
+- **Kimi:** use OpenAI-compatible Chat Completions with `response_format.type=json_schema`, `strict: true`, and a bounded `max_completion_tokens` value. Parse only the final message content.
+- Provider-specific request fields must remain isolated; API compatibility does not imply identical parameter support.
+- The API route accepts JSON only, caps request size, enforces domain limits again on the server, applies a timeout, disables response caching, and never forwards browser-supplied credentials or endpoints.
+
+Current official references:
+
+- OpenAI: [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) and [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol)
+- DeepSeek: [current API models](https://api-docs.deepseek.com/) and [JSON Output](https://api-docs.deepseek.com/guides/json_mode/)
+- Kimi: [regional quick start](https://platform.kimi.com/docs/overview), [model list](https://platform.kimi.ai/docs/models), and [Structured Output](https://platform.kimi.com/docs/guide/response_format)
+
+### Domain and semantic validation
+
+Zod schemas are the runtime and TypeScript source of truth for:
+
+- sources: `slides`, `transcript`, `notes`;
+- status: `covered`, `partial`, `missing`, `contradiction`;
+- importance: `core`, `supporting`;
+- chunks, provider catalog, API request/response/error envelopes, evidence references, assessments, and model analysis.
+
+IDs must be unique. Covered assessments have no patch. Partial, missing, and contradiction require a nonblank patch. Evidence rules are:
 
 - covered and partial: at least one slides-or-transcript reference and one notes reference;
 - missing: at least one slides-or-transcript reference;
 - contradiction: at least one slides-or-transcript reference and one notes reference.
 
-All referenced chunks must exist. Hydrated display evidence always takes its source name, locator, heading path, and excerpt from the current chunk map.
+All chunk references must exist. Hydrated evidence always obtains its source name, locator, heading path, and excerpt from the current chunk map. Strict structured output does not replace application-side domain and semantic validation.
 
 ### Fixture integrity
 
-- Include a synthetic **Evidence-Based Study Strategies** PDF, transcript, notes document, analysis fixture, and SHA-256 fingerprint manifest.
-- Run sample assets through the same ingestion pipeline used for user-selected files.
-- Accept the fixture only when all ordered normalized source fingerprints match the manifest.
-- Label fixture-derived findings as simulated demo analysis.
-- Never silently fall back to the fixture for arbitrary or mismatched files.
+- Include the synthetic **Evidence-Based Study Strategies** files, analysis fixture, and SHA-256 fingerprint manifest.
+- Pass sample assets through the production ingestion pipeline.
+- Accept the fixture only when every ordered normalized source fingerprint matches.
+- Label fixture results as simulated demo analysis.
+- Never use the fixture for arbitrary or mismatched files or as a silent fallback for a live failure.
 
 ### Coverage and generated Markdown
 
@@ -100,56 +136,55 @@ Calculate coverage as:
 round(100 × (covered + 0.5 × partial) / all assessments)
 ```
 
-Missing and contradiction contribute zero. Importance does not change the formula. An empty assessment set is invalid.
+Missing and contradiction contribute zero; importance does not change the formula. Zero assessments are invalid.
 
-Generate one deterministic Markdown string from actionable assessments:
-
-1. missing;
-2. partial;
-3. contradiction;
-
-Within each status, core assessments appear before supporting assessments, with a stable final tie-break. Copy and download must use this exact same UTF-8 string.
+Generate one deterministic Markdown string from actionable assessments in missing → partial → contradiction order. Within a status, core precedes supporting with a stable final tie-break. Copy and download use the identical UTF-8 string.
 
 ### Presentation and states
 
-- Provide responsive upload cards and a prominent one-click demo action.
-- Show honest extracting and analysis-preparation progress; do not imply a live model call.
-- Display overall score, category counts, category filters, and issue cards.
-- Let users open evidence in an accessible dialog or mobile bottom sheet with source excerpt and locator.
-- Provide generated-Markdown preview, copy feedback, and `.md` download.
-- Include initial, loading, validation-error, textless-PDF, fixture-mismatch, success, empty, and recoverable retry/reset states.
-- Preserve keyboard navigation, visible focus, semantic labels, and focus restoration when overlays close.
-
-## Out of scope
-
-- Live OpenAI calls or `/api/analyze`
-- Authentication, accounts, user profiles, or multi-user collaboration
-- Databases, server persistence, project history, or analytics
-- Notion, audio transcription, PPTX, OCR, embeddings, or vector databases
-- Payments, a general-purpose chatbot, and unrelated study features
+- Keep **Try demo** prominent and usable without configuration.
+- Provide accessible provider/model controls with configured-state labeling.
+- Explain that raw files stay local and normalized chunks are transmitted only for configured live analysis.
+- Distinguish local extraction, live model analysis, simulated demo analysis, and source-map-only results honestly.
+- Display score, counts, filters, evidence dialogs/sheets, Markdown preview, copy feedback, and download.
+- Treat initial, extracting, live-loading, success, empty, unconfigured, validation failure, textless PDF, fingerprint mismatch, provider refusal/auth/balance/rate-limit/timeout/invalid-output, retry, and reset as first-class states.
+- Preserve keyboard navigation, touch targets, visible focus, semantic labels, and overlay focus restoration.
 
 ## Privacy and security
 
-- Selected files and derived results stay in browser memory and are cleared on refresh.
-- The application does not upload files or persist source material.
-- No secret or environment variable is required for Milestone 1.
-- Synthetic sample content is used for the checked-in demonstration; real student records must not be committed.
-- Markdown rendering must not enable unsafe raw HTML.
+- Raw files remain in browser memory and are cleared on refresh.
+- Live analysis sends normalized chunks containing source text to the selected provider; the selected provider's data-handling terms apply.
+- The application does not write chunks or results to a database or persistent store.
+- API keys remain server-only and must never use a `NEXT_PUBLIC_` name.
+- User source text is untrusted data, not model instructions; embedded prompt injection must be ignored.
+- User/provider Markdown must render without unsafe raw HTML.
+- Suggested patches reject raw HTML, Markdown images, autolinks, Markdown links/references, and bare external URLs before copy or download.
+- Secrets, real student records, and local `.env` files must not be committed.
+
+## Public-deployment cost and abuse requirements
+
+The deployment owner pays for live calls. Request-size, output, and timeout caps reduce accidental cost but do not prevent distributed abuse. A public live deployment requires an explicit operational plan for authentication or access restriction, per-user/IP rate limits, quotas, provider budget alerts or hard limits, monitoring, and an emergency disable path. Without those controls, deploy privately or omit all provider keys and expose only the no-key demo.
+
+## Out of scope
+
+- Authentication, accounts, user profiles, multi-user isolation, or collaboration
+- Databases, saved projects, server persistence, cross-device history, or analytics
+- User-supplied provider keys or arbitrary provider base URLs
+- Payments or an in-app API-credit system
+- Notion, audio transcription, PPTX, OCR, embeddings, vector databases, or chat
 
 ## Success criteria
 
-The milestone is successful when:
+Milestone 2 succeeds when:
 
-- a judge can complete the sample workflow and inspect grounded evidence in under two minutes;
-- the sample runs end to end with no API key and no application backend;
-- each displayed evidence locator and excerpt comes from freshly parsed sample chunks;
-- the fingerprint gate prevents sample analysis from being applied to arbitrary uploads;
-- the exact deterministic score, category counts, and generated patch are reproducible;
-- copy and download controls work with the generated Markdown;
-- validation and recovery states are clear on desktop and mobile;
-- `npm install`, `npm run lint`, `npm test`, and `npm run build` pass;
-- the app deploys to Vercel with no environment variables.
-
-## Future boundary
-
-A later milestone may replace the checked-in analysis fixture with a server-only OpenAI Responses API call. That work must preserve the same evidence-trust and deterministic-scoring boundaries, but it is not part of Milestone 1 and must not be preimplemented here.
+- the judge completes the no-key sample workflow in under two minutes;
+- the demo remains deterministic and makes no provider request;
+- a production build passes without environment variables;
+- raw files parse locally and only validated normalized chunks cross the live API boundary;
+- each configured provider can produce a validated result through its documented adapter contract;
+- malformed, truncated, refused, or semantically invalid provider output fails closed;
+- evidence metadata comes only from freshly parsed chunks;
+- score, counts, ordering, and Markdown remain deterministic across demo and live results;
+- unconfigured and failed live flows preserve a useful source map and recovery action;
+- there is no authentication, database, application persistence, or committed secret;
+- `npm install`, `npm run lint`, `npm test`, and `npm run build` pass.

@@ -19,3 +19,6 @@ export {
 export type { CoverageCounts, CoverageMetrics } from "./scoring";
 
 export { generateMarkdownPatch } from "./markdown";
+
+export { buildAnalysisResult } from "./result";
+export type { AnalysisOrigin, AnalysisResult } from "./result";

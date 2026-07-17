@@ -27,3 +27,4 @@ pnpm-debug.log*
 
 # PDF generation intermediates
 /tmp/pdfs
+.vercel

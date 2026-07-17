@@ -1,10 +1,10 @@
 # LectureWeaver
 
-LectureWeaver is a completeness-first study tool. It compares lecture slides and a transcript with a student's existing notes, then shows what is covered, partial, missing, or contradictory. Every finding links back to a locator in the material that was actually parsed, so the review is auditable instead of being a black-box summary.
+LectureWeaver is a completeness-first study tool. It compares lecture slides and a transcript with a student's existing notes, classifies concepts as covered, partial, missing, or contradictory, and links every finding to trusted locators derived from the parsed sources.
 
-This repository currently implements **Milestone 1: a polished, browser-only sample demo**. It needs no API key, makes no OpenAI request, and has no `/api/analyze` route.
+This repository implements **Milestone 2: the no-key sample demo plus optional server-side live analysis with OpenAI, DeepSeek, or Kimi**. The demo remains the fastest path and never needs an API key.
 
-## Judge path — under two minutes
+## Judge path — no key, under two minutes
 
 Once the app is open locally or on Vercel:
 
@@ -13,7 +13,7 @@ Once the app is open locally or on Vercel:
 3. Open an issue card and inspect its source evidence and trusted page or paragraph locator.
 4. In **Suggested additions**, select **Copy Markdown** or **Download .md**.
 
-The demo is deterministic and does not require a network call after the app assets have loaded. Its simulated analysis is clearly labeled.
+This path is deterministic, clearly labeled as simulated, and makes no model request even when a live provider is configured.
 
 ## Run locally
 
@@ -24,79 +24,117 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), then use **Try demo**.
+Open [http://localhost:3000](http://localhost:3000), then use **Try demo**. No `.env` file is required for the demo or for a production build.
 
-No `.env` file or API key is needed. Uploaded files and results remain in browser memory and disappear on refresh.
+## Optional live analysis
 
-## How the demo works
+To analyze user-selected material, copy the example configuration and add at least one provider key:
+
+```bash
+cp .env.example .env.local
+npm run dev
+```
+
+All keys are optional and server-only. Never prefix them with `NEXT_PUBLIC_`, expose them in the browser, or commit `.env.local`.
+
+| Variable | Default when its key is configured | Purpose |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | — | Enables OpenAI live analysis. |
+| `OPENAI_MODEL` | `gpt-5.6` | OpenAI model; the official alias currently routes to GPT-5.6 Sol. |
+| `DEEPSEEK_API_KEY` | — | Enables DeepSeek live analysis. |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash` | DeepSeek model. |
+| `KIMI_API_KEY` | — | Enables Kimi live analysis. |
+| `KIMI_MODEL` | `kimi-k3` | Kimi model. |
+| `KIMI_REGION` | `cn` | `cn` uses `api.moonshot.cn`; `global` uses `api.moonshot.ai`. |
+
+An invalid nonblank `KIMI_REGION` fails closed: Kimi is shown as unconfigured and no source text or key is sent to either regional endpoint.
+
+Choose a configured provider and model before selecting all three source files. If the provider is not configured, LectureWeaver keeps the local source map and sends nothing. A failed live request also preserves the parsed source map so the user can retry, switch providers, or use the demo.
+
+**Build local source map** never calls a provider. **Extract and analyze with …** is the explicit transmission action for the selected configured provider; an existing map can instead use **Analyze current source map with …** without re-extraction.
+
+ChatGPT and Codex subscriptions do **not** fund these API calls. OpenAI Platform API usage and the other providers' API usage require separate provider credentials and billing. Do not copy Codex login tokens or ChatGPT session credentials into this app.
+
+## Data flow and trust boundary
 
 ```text
 PDF + TXT + Markdown files
           │
           ▼
-browser validation and text extraction
+browser validation, extraction, normalization, and chunking
           │
-          ▼
-normalized chunks with trusted locators
+          ├── Try demo ──► fingerprint gate ──► validated fixture
           │
-          ├── ordered source fingerprints ──► sample-manifest check
-          │                                      │
-          │                                      ▼
-          └──────────────────────────────► validated analysis fixture
-                                                 │
-                                                 ▼
-                               evidence hydration + deterministic score
-                                                 │
-                                                 ▼
-                               review cards + Markdown additions
+          └── Live ──────► normalized chunks ──► /api/analyze
+                                                  │
+                                  server-only selected provider
+                                                  │
+                                  Zod + semantic validation
+                                                  │
+          ◄──────── trusted evidence hydration + deterministic output
 ```
 
+- Raw PDF, TXT, and Markdown files are parsed in the browser and are never posted to `/api/analyze`.
+- A live request sends normalized text chunks, including their structural IDs and trusted locators. Those chunks contain source text, so users should treat live analysis as a transmission to the selected AI provider.
+- Provider output may reference chunk IDs but cannot supply trusted filenames, locators, headings, or excerpts. Display evidence is hydrated from the current browser-parsed chunk map.
+- Provider output must pass the strict wire Zod schema, the domain schema, duplicate/reference checks, and status-specific evidence rules. Invalid or truncated output fails closed.
+- Suggested patches reject raw HTML, images, autolinks, Markdown links/references, and bare external URLs before they can be copied or downloaded.
+- LectureWeaver calculates the score, counts, ordering, evidence hydration, and Markdown in application code. Providers do not control those values.
+- The app has no authentication, database, saved history, analytics, or server persistence.
+
+## Provider contracts
+
+The adapters share one validated domain result but intentionally use provider-specific API contracts:
+
+- **OpenAI:** Responses API with `store: false` and strict Structured Outputs generated from the Zod wire schema. The default `gpt-5.6` alias currently routes to GPT-5.6 Sol. Refusals and incomplete output are handled separately from valid structured results.
+- **DeepSeek:** OpenAI-compatible Chat Completions at `https://api.deepseek.com`, using JSON Output with `deepseek-v4-flash` by default. DeepSeek JSON Output guarantees parseable JSON, not schema adherence, so LectureWeaver performs strict local Zod and semantic validation.
+- **Kimi:** OpenAI-compatible Chat Completions with `json_schema` and `strict: true`. `kimi-k3` is the default. The region setting selects the official China or global API base URL.
+
+The server caps model output and request duration. A provider response that is empty, refused, content-filtered, over the output limit, malformed, or semantically invalid is never rendered as an analysis.
+
+Official contract and model references:
+
+- OpenAI: [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) and [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol)
+- DeepSeek: [API quick start and current model IDs](https://api-docs.deepseek.com/) and [JSON Output](https://api-docs.deepseek.com/guides/json_mode/)
+- Kimi: [quick start and regional endpoints](https://platform.kimi.com/docs/overview), [current model list](https://platform.kimi.ai/docs/models), and [Structured Output](https://platform.kimi.com/docs/guide/response_format)
+
+## Extraction and demo integrity
+
 - PDF.js extracts text page by page in the browser.
-- TXT content is normalized into numbered paragraphs.
-- Markdown content keeps numbered paragraph locators and the active heading path. ATX and Setext headings are recognized outside fenced code blocks.
-- Chunks are capped at 1,800 characters and receive structural IDs such as `slides:p0002:c01` or `notes:p0005-p0007:c01`.
-- The sample analysis fixture contains chunk references, not trusted display metadata. Locators, source names, heading paths, and excerpts are hydrated only from the freshly parsed chunks.
-- The fixture is accepted only when the ordered normalized source fingerprints match the checked-in sample manifest. Other valid files can exercise ingestion and show a source-map summary, but cannot receive the sample's simulated analysis.
+- TXT content becomes numbered paragraphs.
+- Markdown keeps numbered paragraph locators and active ATX or Setext heading paths outside fenced code blocks.
+- Limits are 10 MiB for PDF, 1 MiB for each text file, 120,000 normalized characters total, 100 chunks, and 1,800 characters per chunk. Input is rejected rather than silently truncated.
+- The sample fixture contains chunk references, not trusted display metadata.
+- The fixture is accepted only when ordered normalized fingerprints match the checked-in sample manifest. Arbitrary uploads can never receive the sample result.
 
 ### Coverage score
 
-The score is calculated in application code, never read from the fixture:
+The score is calculated only in application code:
 
 ```text
 round(100 × (covered + 0.5 × partial) / all assessments)
 ```
 
-Missing and contradiction assessments contribute zero. Core and supporting importance affect presentation order, not the arithmetic.
-
-## Sample data
-
-The synthetic **Evidence-Based Study Strategies** corpus is checked into `public/demo/`:
-
-- `lecture.pdf` — a text-based lecture PDF
-- `transcript.txt` — a paragraph-based lecture transcript
-- `notes.md` — deliberately incomplete student notes
-- a manifest records the expected normalized source fingerprints
-
-The schema-valid simulated analysis lives with the project fixtures. The sample deliberately includes covered, partial, missing, and contradictory concepts so all important UI states can be demonstrated without sending material to a service.
+Missing and contradiction contribute zero. Importance affects presentation order, not arithmetic. Markdown is generated deterministically in missing → partial → contradiction order, core before supporting, and copy/download use the same UTF-8 string.
 
 ## Architecture
 
-LectureWeaver uses the Next.js App Router, strict TypeScript, Tailwind CSS, Zod, PDF.js, Vitest, and Testing Library. Milestone 1 has no database, authentication, server persistence, analytics, or server-side application endpoint. All parsing and analysis-fixture processing happen in the browser.
+LectureWeaver uses the Next.js App Router, strict TypeScript, Tailwind CSS, Zod, PDF.js, the OpenAI server SDK, Vitest, and Testing Library.
 
-Key boundaries:
+```text
+src/app/                 UI entry point and server API route
+src/components/          Upload, provider selection, progress, results, evidence, patch UI
+src/domain/              Zod source, API, provider, and model-analysis contracts
+src/lib/extraction/      Browser validation, extraction, normalization, and chunking
+src/lib/demo/            Sample loading, fingerprint verification, fixture orchestration
+src/lib/ai/              Provider catalog, prompts, adapters, validation, and error mapping
+src/lib/analysis/        Semantic validation, trusted hydration, score, Markdown generation
+public/demo/             Synthetic sample assets and fingerprint manifest
+fixtures/                Strictly validated simulated analysis
+tests/                   Unit, integration, API, provider, and UI coverage
+```
 
-- Zod schemas are the single source of truth for domain validation and inferred TypeScript types.
-- File validation checks extensions, MIME compatibility, size, PDF signature, and UTF-8 text safety.
-- Input limits are 10 MiB for PDF, 1 MiB for each text file, 120,000 normalized characters in total, 100 chunks, and 1,800 characters per chunk. Input is rejected rather than silently truncated.
-- Evidence references are resolved through a unique chunk map and validated against status-specific source requirements.
-- Suggested Markdown is assembled in a fixed order: missing, partial, contradiction; core items precede supporting items.
-- Copy and download controls use the same generated UTF-8 Markdown string.
-
-See [PRODUCT_SPEC.md](./PRODUCT_SPEC.md) for product behavior and [AGENTS.md](./AGENTS.md) for repository conventions and completion gates.
-
-### GPT-5.6 integration boundary
-
-Milestone 1 deliberately contains no OpenAI SDK, API route, model environment variable, or browser-visible secret. The checked-in fixture is validated by the same strict `ModelAnalysis` Zod contract and evidence rules that a future GPT-5.6 Structured Outputs response must satisfy. A later milestone can replace fixture loading with a server-only Responses API route while preserving trusted hydration, deterministic scoring, and patch generation; that live integration is intentionally not preimplemented here.
+See [PRODUCT_SPEC.md](./PRODUCT_SPEC.md) for product behavior and [AGENTS.md](./AGENTS.md) for repository conventions.
 
 ## Testing and quality gates
 
@@ -106,9 +144,9 @@ npm test
 npm run build
 ```
 
-The focused suite covers schemas and semantic rules, source normalization and chunking, Markdown heading context, deterministic scoring, trusted evidence hydration, sample fingerprint matching, patch ordering, and the one-click UI workflow.
+The production build must pass with no provider keys. Tests use synthetic data and mocked provider responses; they must not consume paid API credits.
 
-Before calling a milestone complete, run the clean gate:
+Before handing off the milestone, run:
 
 ```bash
 npm install
@@ -119,33 +157,27 @@ npm run build
 
 ## Deploy to Vercel
 
-1. Import this repository into Vercel.
-2. Keep the detected framework preset as **Next.js**.
-3. Use `npm run build` as the build command; no environment variables are required.
-4. Deploy, then run the judge path above on the production URL.
+1. Import this repository into Vercel and keep the **Next.js** framework preset.
+2. Use `npm run build` as the build command.
+3. For the no-key demo, add no environment variables.
+4. For live analysis, add only the desired server-side variables from `.env.example` in the Vercel project settings, then redeploy.
+5. Verify **Try demo** first, then test each configured provider with synthetic material.
 
-The app uses only bundled/static sample assets and browser-side processing, so the Milestone 1 deployment does not need a secret store or backend service.
+### Public-deployment cost and abuse warning
 
-## Working with Codex
-
-- Start with [AGENTS.md](./AGENTS.md); it records the structure, commands, constraints, and definition of done for collaborators.
-- Work on the current branch unless the task explicitly requests another workflow.
-- Preserve the browser-only/no-key boundary for Milestone 1. Do not add an OpenAI dependency, `/api/analyze`, server persistence, or unrelated features.
-- Keep schemas and domain behavior centralized rather than duplicating types in UI code.
-- Add or update focused tests with behavior changes, then run lint, tests, and a production build.
-- Never commit secrets, credentials, local environment files, or real student material.
+`/api/analyze` spends the deployment owner's provider credits. The built-in size, output, and timeout limits are safety bounds, not a complete abuse-control system. Before exposing live analysis publicly, add an appropriate combination of authentication, per-user/IP rate limiting, quotas, provider budget alerts/hard limits, monitoring, and an emergency kill switch. Until those controls exist, prefer a private or access-restricted deployment, or deploy the no-key demo without provider keys.
 
 ## Current limitations
 
-- Only PDF lecture slides, TXT transcripts, and Markdown notes are supported.
-- PDFs must contain extractable text. Scanned/image-only, encrypted, malformed, and complex-layout PDFs may be rejected; OCR is not included.
-- The checked-in fixture can analyze only the fingerprint-matched synthetic sample. Arbitrary uploads are parsed locally but do not receive simulated findings.
-- There is no live GPT-5.6/OpenAI integration in this milestone. A future milestone may add a server-only Responses API route; it is intentionally absent here.
-- There is no saved history, collaboration, account system, or cross-device persistence.
+- Only text-based PDF slides, UTF-8 TXT transcripts, and UTF-8 Markdown notes are supported; OCR, PPTX, and audio are out of scope.
+- Results are not saved and disappear on refresh.
+- Live analysis requires separately billed provider API access and is subject to provider availability, policy, retention terms, limits, and pricing.
+- The app does not include authentication, multi-user isolation, durable rate limiting, quotas, or billing controls.
+- DeepSeek JSON Output is not strict schema enforcement; every result still depends on LectureWeaver's local validation.
 
 ## Privacy
 
-Files selected in Milestone 1 are processed locally in the browser. They are not uploaded by application code, and no application database exists. Use synthetic or non-sensitive material when testing deployments you do not control.
+Raw files stay in browser memory. The no-key demo makes no model request. Live analysis sends normalized text chunks to the selected provider; the application does not persist them, but the provider's own data-handling terms still apply. Use synthetic or non-sensitive material unless the deployment and chosen provider are approved for the data involved.
 
 ## License
 
