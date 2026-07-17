@@ -1,0 +1,19 @@
+Evidence-Based Study Strategies - lecture transcript
+
+Welcome. Today we are focusing on study methods that create durable, usable learning rather than a temporary feeling of familiarity. Our central test is simple: after time has passed and the material is no longer in front of you, can you still retrieve the idea and choose when to use it? We will connect retrieval practice, spacing, practice schedules, desirable difficulties, interleaving, feedback, and the limits of rereading.
+
+Retrieval practice means trying to bring an answer to mind before looking it up. A low-stakes quiz, a blank-page recall, or explaining a process without the slides all count. Retrieval strengthens access to the knowledge and also reveals gaps that passive review can hide. The useful loop is learn, retrieve, check, and restudy. Simply reading a question and immediately viewing the answer is recognition, not retrieval practice.
+
+Spacing is the decision to distribute practice across separate sessions instead of compressing the same amount of work into one sitting. Some forgetting between sessions makes the next successful retrieval effortful and useful. A practical expanding schedule might revisit a topic after one day, three days, seven days, and fourteen days. The exact interval should respond to recall: shorten it after a failure and lengthen it after an easy success.
+
+A practice schedule turns the spacing principle into a repeatable plan. Schedule brief retrieval sessions in advance, include older material, and record which concepts need a shorter return interval. A strong weekly schedule is cumulative rather than topic-isolated: learn and retrieve on Monday, retrieve again on Tuesday, mix related problem types on Thursday, and use a cumulative check on Sunday.
+
+Desirable difficulties are learning conditions that feel harder now but improve retention or transfer later. Effort alone is not enough. The difficulty must remain achievable, match the learning goal, and be followed by information that lets the learner correct errors. Generation before explanation, spacing, and varied practice can be productive. Confusing instructions or impossible tasks are merely difficult, not desirable.
+
+Interleaving alternates related categories or problem types within a practice session. Its main mechanism is discrimination: each new item forces the learner to notice diagnostic features, identify the kind of problem, and select the appropriate strategy. Blocked practice can produce smoother early performance because the strategy is already known, but that fluency can be misleading. Interleaving may reduce immediate accuracy while improving later strategy selection and transfer.
+
+Feedback should come after a genuine attempt, while there is still time to correct the mental model before an error becomes stable. Immediate feedback is often useful for novices and factual errors. A brief delay can support reflection on complex judgments, but a long uncorrected delay is risky. The core sequence is attempt, feedback, correction, and retry; showing the answer before an attempt removes the retrieval opportunity.
+
+Rereading can be useful for initial orientation, but rereading alone is a low-utility study strategy compared with practice testing and distributed practice. Repeated exposure makes the page feel fluent and familiar, which can be mistaken for mastery. To test learning, close the material and retrieve. Use rereading selectively after retrieval has exposed a specific gap, not as the primary evidence that you know the content.
+
+The takeaway is to design a small system rather than chase a feeling of ease. Retrieve before looking, distribute practice, mix related choices when discrimination matters, and use feedback to repair errors. If a strategy feels smooth, ask whether it will still work next week without the page in view.

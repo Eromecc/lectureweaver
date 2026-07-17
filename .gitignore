@@ -1,0 +1,29 @@
+# Dependencies
+/node_modules
+
+# Next.js
+/.next
+/out
+
+# Tests
+/coverage
+
+# Local environment files and secrets
+.env*
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS and editors
+.DS_Store
+*.swp
+
+# TypeScript
+*.tsbuildinfo
+
+# PDF generation intermediates
+/tmp/pdfs

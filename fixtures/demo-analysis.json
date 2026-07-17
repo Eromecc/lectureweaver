@@ -1,0 +1,151 @@
+{
+  "summary": "The notes capture four foundational learning strategies well, partially explain why interleaving works, omit the feedback correction loop, and contradict the lecture by treating rereading fluency as proof of mastery.",
+  "assessments": [
+    {
+      "id": "concept-retrieval-practice",
+      "title": "Retrieval practice",
+      "importance": "core",
+      "status": "covered",
+      "explanation": "The notes accurately define retrieval before checking, give valid examples, and preserve the learn–retrieve–check–restudy loop.",
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0002:c01",
+          "relevance": "Defines retrieval practice and distinguishes it from immediate answer recognition."
+        },
+        {
+          "chunkId": "transcript:p0001-p0005:c01",
+          "relevance": "Explains the retrieval loop, examples, benefits, and the recognition boundary."
+        },
+        {
+          "chunkId": "notes:p0002:c01",
+          "relevance": "The notes reproduce the definition, examples, purpose, and full loop."
+        }
+      ]
+    },
+    {
+      "id": "concept-spacing",
+      "title": "Spacing",
+      "importance": "core",
+      "status": "covered",
+      "explanation": "The notes correctly contrast spaced practice with cramming and explain why some forgetting makes later retrieval productive.",
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0003:c01",
+          "relevance": "Defines spacing and states that some forgetting makes later retrieval useful."
+        },
+        {
+          "chunkId": "transcript:p0001-p0005:c01",
+          "relevance": "Explains distributed sessions, expanding intervals, and adapting intervals to recall."
+        },
+        {
+          "chunkId": "notes:p0003:c01",
+          "relevance": "The notes capture distributed practice, anti-cramming, and productive effort."
+        }
+      ]
+    },
+    {
+      "id": "concept-practice-schedule",
+      "title": "Adaptive practice schedule",
+      "importance": "supporting",
+      "status": "covered",
+      "explanation": "The notes include the lecture's expanding intervals, adjustment rule, cumulative reviews, and older-topic queue.",
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0003:c01",
+          "relevance": "Shows the 0–1–3–7–14 day cadence and interval adjustment rule."
+        },
+        {
+          "chunkId": "transcript:p0001-p0005:c01",
+          "relevance": "Turns spacing into a cumulative weekly schedule that responds to recall."
+        },
+        {
+          "chunkId": "notes:p0004:c01",
+          "relevance": "The notes preserve the intervals, adaptation rule, and cumulative review queue."
+        }
+      ]
+    },
+    {
+      "id": "concept-desirable-difficulties",
+      "title": "Desirable difficulties",
+      "importance": "supporting",
+      "status": "covered",
+      "explanation": "The notes correctly distinguish achievable, goal-aligned productive effort from confusion that is merely difficult.",
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0004:c01",
+          "relevance": "Contrasts productive friction with confusing, unachievable, or uncorrected effort."
+        },
+        {
+          "chunkId": "transcript:p0006-p0009:c01",
+          "relevance": "Defines desirable difficulty and gives its achievement, goal, and correction conditions."
+        },
+        {
+          "chunkId": "notes:p0005:c01",
+          "relevance": "The notes capture the durable benefit, achievement boundary, and useful examples."
+        }
+      ]
+    },
+    {
+      "id": "concept-interleaving",
+      "title": "Interleaving and discrimination",
+      "importance": "core",
+      "status": "partial",
+      "explanation": "The notes define mixing and mention transfer, but omit the key mechanism: discriminating among diagnostic features to select the right strategy. They also omit the warning that lower immediate accuracy can coexist with better later transfer.",
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0005:c01",
+          "relevance": "Names discrimination as the mechanism and contrasts immediate accuracy with later transfer."
+        },
+        {
+          "chunkId": "transcript:p0006-p0009:c01",
+          "relevance": "Explains how each mixed item forces category identification and strategy selection."
+        },
+        {
+          "chunkId": "notes:p0006:c01",
+          "relevance": "The notes describe mixing and transfer but not diagnostic discrimination or the accuracy tradeoff."
+        }
+      ],
+      "suggestedPatch": "Interleaving helps learners discriminate among related problem types: each item requires noticing diagnostic features, identifying the problem category, and choosing the appropriate strategy. It can reduce immediate accuracy while improving later strategy selection and transfer."
+    },
+    {
+      "id": "concept-feedback-loop",
+      "title": "Feedback correction loop",
+      "importance": "core",
+      "status": "missing",
+      "explanation": "The notes do not explain when feedback should arrive or preserve the lecture's attempt–feedback–correction–retry loop.",
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0006:c01",
+          "relevance": "Presents the timing principle and four-step feedback correction loop."
+        },
+        {
+          "chunkId": "transcript:p0006-p0009:c01",
+          "relevance": "Explains immediate versus briefly delayed feedback and the risk of uncorrected errors."
+        }
+      ],
+      "suggestedPatch": "Feedback should follow a genuine attempt soon enough to correct an error before it stabilizes. Use the loop **attempt → feedback → correction → retry**; immediate feedback often helps novices and factual errors, while a brief delay can support reflection on complex judgments."
+    },
+    {
+      "id": "concept-rereading-fluency",
+      "title": "Rereading fluency versus mastery",
+      "importance": "core",
+      "status": "contradiction",
+      "explanation": "The notes call repeated rereading the most effective method and use familiarity as confirmation of learning, directly opposing the lecture's warning that fluency can be mistaken for mastery.",
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0007:c01",
+          "relevance": "Contrasts the familiar feeling of rereading with durable access produced by retrieval."
+        },
+        {
+          "chunkId": "transcript:p0006-p0009:c01",
+          "relevance": "Calls rereading alone low utility and recommends retrieval before targeted restudy."
+        },
+        {
+          "chunkId": "notes:p0007:c01",
+          "relevance": "The notes assert that repeated rereading and familiarity prove mastery."
+        }
+      ],
+      "suggestedPatch": "Rereading is useful for orientation or targeted restudy, but familiarity is not evidence of mastery. Practice testing and distributed practice build more durable access; close the material and retrieve before rereading the specific gaps you expose."
+    }
+  ]
+}

@@ -1,0 +1,886 @@
+"use client";
+
+import type { ChangeEvent, DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  ChevronRight,
+  CircleCheck,
+  Clipboard,
+  Download,
+  Eye,
+  FileText,
+  LoaderCircle,
+  Lock,
+  NotebookPen,
+  Presentation,
+  RotateCcw,
+  ScanText,
+  ShieldCheck,
+  Sparkles,
+  Upload,
+  X,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
+import type { AssessmentStatus, SourceType } from "@/domain";
+import type {
+  HydratedConceptAssessment,
+  HydratedEvidence,
+} from "@/lib/analysis";
+import {
+  DemoFingerprintMismatchError,
+  loadDemoFiles,
+  runFixtureAnalysis,
+} from "@/lib/demo";
+import type { DemoAnalysisResult } from "@/lib/demo";
+import {
+  processSourceFiles,
+  SourceProcessingError,
+} from "@/lib/extraction";
+import type { ProcessedSources, SourceFiles } from "@/lib/extraction";
+
+type SourceSpec = {
+  sourceType: SourceType;
+  eyebrow: string;
+  title: string;
+  detail: string;
+  accept: string;
+  limit: string;
+  icon: LucideIcon;
+};
+
+type PipelineMode = "idle" | "loading" | "ready" | "source-map" | "error";
+type IssueStatus = Exclude<AssessmentStatus, "covered">;
+type IssueFilter = "all" | IssueStatus;
+
+const SOURCE_SPECS: readonly SourceSpec[] = [
+  {
+    sourceType: "slides",
+    eyebrow: "01 / Lecture source",
+    title: "Slides",
+    detail: "Text-based PDF",
+    accept: ".pdf,application/pdf",
+    limit: "Up to 10 MiB",
+    icon: Presentation,
+  },
+  {
+    sourceType: "transcript",
+    eyebrow: "02 / Spoken context",
+    title: "Transcript",
+    detail: "UTF-8 plain text",
+    accept: ".txt,text/plain",
+    limit: "Up to 1 MiB",
+    icon: FileText,
+  },
+  {
+    sourceType: "notes",
+    eyebrow: "03 / Your baseline",
+    title: "Existing notes",
+    detail: "Markdown",
+    accept: ".md,.markdown,text/markdown,text/plain",
+    limit: "Up to 1 MiB",
+    icon: NotebookPen,
+  },
+] as const;
+
+const SOURCE_NAMES: Record<SourceType, string> = {
+  slides: "Slides",
+  transcript: "Transcript",
+  notes: "Notes",
+};
+
+const STATUS_META: Record<
+  IssueStatus,
+  { label: string; shortLabel: string; accent: string; pill: string; icon: LucideIcon }
+> = {
+  missing: {
+    label: "Missing explanation",
+    shortLabel: "Missing",
+    accent: "border-l-[#ef6b5a]",
+    pill: "bg-[#fee4dd] text-[#a83f32]",
+    icon: AlertTriangle,
+  },
+  partial: {
+    label: "Partially covered",
+    shortLabel: "Partial",
+    accent: "border-l-[#daa83c]",
+    pill: "bg-[#f8ebc8] text-[#765511]",
+    icon: ScanText,
+  },
+  contradiction: {
+    label: "Possible contradiction",
+    shortLabel: "Contradiction",
+    accent: "border-l-[#376ab4]",
+    pill: "bg-[#dfe8f7] text-[#244f8d]",
+    icon: AlertTriangle,
+  },
+};
+
+const FILTERS: readonly { value: IssueFilter; label: string }[] = [
+  { value: "all", label: "All issues" },
+  { value: "missing", label: "Missing" },
+  { value: "partial", label: "Partial" },
+  { value: "contradiction", label: "Contradictions" },
+];
+
+const STATUS_RANK: Record<IssueStatus, number> = {
+  missing: 0,
+  partial: 1,
+  contradiction: 2,
+};
+
+function hasAllFiles(files: Partial<SourceFiles>): files is SourceFiles {
+  return files.slides !== undefined && files.transcript !== undefined && files.notes !== undefined;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof SourceProcessingError) return error.message;
+  if (error instanceof Error) return error.message;
+  return "LectureWeaver could not process those files. Please try again.";
+}
+
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+function LogoMark() {
+  return (
+    <span
+      aria-hidden="true"
+      className="relative grid size-9 place-items-center overflow-hidden rounded-[12px] bg-[#14213d]"
+    >
+      <span className="absolute h-[3px] w-6 -rotate-12 rounded-full bg-[#dcece8]" />
+      <span className="absolute h-[3px] w-6 rotate-12 rounded-full bg-[#ef6b5a]" />
+      <span className="absolute size-2 rounded-full border-2 border-[#f8ebc8] bg-[#14213d]" />
+    </span>
+  );
+}
+
+function AppHeader({ onTryDemo, loading }: { onTryDemo: () => void; loading: boolean }) {
+  return (
+    <header className="relative z-20 border-b border-[#14213d]/10 bg-[#f7f4ec]/85 backdrop-blur-xl">
+      <div className="mx-auto flex min-h-18 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
+        <a href="#top" className="flex items-center gap-3 rounded-xl" aria-label="LectureWeaver home">
+          <LogoMark />
+          <span className="text-[17px] font-bold tracking-[-0.03em]">LectureWeaver</span>
+        </a>
+        <div className="flex items-center gap-3">
+          <span className="hidden items-center gap-1.5 rounded-full border border-[#2f837c]/20 bg-white/60 px-3 py-1.5 text-xs font-bold text-[#1f625e] sm:flex">
+            <Lock className="size-3.5" aria-hidden="true" />
+            No-key browser demo
+          </span>
+          <button
+            type="button"
+            onClick={onTryDemo}
+            disabled={loading}
+            className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[#14213d] px-4 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#223252] disabled:cursor-wait disabled:opacity-60"
+          >
+            {loading ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+            Try demo
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function Hero({ onTryDemo, loading }: { onTryDemo: () => void; loading: boolean }) {
+  return (
+    <section className="relative overflow-hidden border-b border-[#14213d]/10" id="top">
+      <div className="fine-grid absolute inset-0 opacity-55" aria-hidden="true" />
+      <div className="absolute -right-28 top-14 size-80 rounded-full border-[54px] border-[#2f837c]/10" aria-hidden="true" />
+      <div className="absolute -left-16 bottom-4 size-36 rounded-full bg-[#ef6b5a]/10 blur-2xl" aria-hidden="true" />
+      <div className="relative mx-auto grid max-w-[1440px] gap-10 px-5 py-18 sm:px-8 sm:py-24 lg:grid-cols-[minmax(0,1.18fr)_minmax(320px,0.62fr)] lg:items-end lg:px-12 lg:py-28">
+        <div className="max-w-4xl animate-rise">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#14213d]/10 bg-white/70 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.15em] text-[#53627b]">
+            <span className="size-1.5 rounded-full bg-[#ef6b5a]" />
+            Completeness-first study review
+          </div>
+          <h1 className="display-face max-w-4xl text-[clamp(3.4rem,8vw,7.6rem)] leading-[0.86] text-[#14213d]">
+            Find what your notes <span className="italic text-[#2f837c]">missed.</span>
+          </h1>
+          <p className="mt-7 max-w-2xl text-lg leading-8 text-[#53627b] sm:text-xl">
+            LectureWeaver checks slides and transcripts against your notes, then ties every gap back to the exact page or paragraph that proves it.
+          </p>
+        </div>
+
+        <div className="animate-rise rounded-[28px] border border-[#14213d]/10 bg-white/75 p-5 shadow-card sm:p-6 [animation-delay:100ms]">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#2f837c]">Judge-ready sample</p>
+              <h2 className="mt-2 text-xl font-bold tracking-[-0.035em]">See the full audit in one click.</h2>
+            </div>
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#dcece8] text-[#1f625e]">
+              <ShieldCheck className="size-5" aria-hidden="true" />
+            </span>
+          </div>
+          <ul className="mt-6 space-y-3 text-sm text-[#53627b]">
+            {[
+              "Real local PDF and Markdown parsing",
+              "Fixture locked to source fingerprints",
+              "Trusted evidence and deterministic scoring",
+            ].map((item) => (
+              <li key={item} className="flex items-center gap-3">
+                <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#14213d] text-white">
+                  <Check className="size-3" aria-hidden="true" />
+                </span>
+                {item}
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={onTryDemo}
+            disabled={loading}
+            className="mt-7 inline-flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl bg-[#ef6b5a] px-5 font-bold text-white shadow-[0_12px_30px_rgba(239,107,90,0.24)] transition hover:-translate-y-0.5 hover:bg-[#db5849] disabled:cursor-wait disabled:opacity-60"
+          >
+            {loading ? <LoaderCircle className="size-5 animate-spin" /> : <Sparkles className="size-5" />}
+            {loading ? "Weaving the sources…" : "Try the sample lecture"}
+            {!loading && <ArrowRight className="size-4" aria-hidden="true" />}
+          </button>
+          <p className="mt-3 text-center text-xs text-[#53627b]">No API key · no uploads · about 3 seconds</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+type FileCardProps = {
+  spec: SourceSpec;
+  file?: File;
+  inputKey: number;
+  disabled: boolean;
+  onSelect: (sourceType: SourceType, file: File) => void;
+};
+
+function FileCard({ spec, file, inputKey, disabled, onSelect }: FileCardProps) {
+  const Icon = spec.icon;
+  const inputId = `source-${spec.sourceType}-${inputKey}`;
+
+  const pickFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const selected = event.currentTarget.files?.[0];
+    if (selected) onSelect(spec.sourceType, selected);
+  };
+
+  const dropFile = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    if (disabled) return;
+    const selected = event.dataTransfer.files[0];
+    if (selected) onSelect(spec.sourceType, selected);
+  };
+
+  return (
+    <article className="group relative flex min-h-60 flex-col rounded-[26px] border border-[#14213d]/10 bg-white/70 p-5 transition hover:-translate-y-1 hover:border-[#2f837c]/35 hover:shadow-card sm:p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#2f837c]">{spec.eyebrow}</p>
+          <h3 className="mt-2 text-2xl font-bold tracking-[-0.04em]">{spec.title}</h3>
+        </div>
+        <span className="grid size-11 place-items-center rounded-2xl bg-[#dcece8] text-[#1f625e] transition group-hover:rotate-3">
+          <Icon className="size-5" aria-hidden="true" />
+        </span>
+      </div>
+
+      {file ? (
+        <div className="mt-7 flex flex-1 flex-col justify-between rounded-2xl border border-[#2f837c]/20 bg-[#edf6f3] p-4">
+          <div className="flex items-start gap-3">
+            <CircleCheck className="mt-0.5 size-5 shrink-0 text-[#2f837c]" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold" title={file.name}>{file.name}</p>
+              <p className="mt-1 text-xs text-[#53627b]">{formatBytes(file.size)} · ready locally</p>
+            </div>
+          </div>
+          <label htmlFor={inputId} className="mt-5 cursor-pointer text-xs font-bold text-[#1f625e] underline decoration-[#2f837c]/30 underline-offset-4">
+            Replace file
+          </label>
+        </div>
+      ) : (
+        <label
+          htmlFor={inputId}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={dropFile}
+          className="mt-7 flex flex-1 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[#14213d]/20 bg-[#f7f4ec]/65 px-4 py-5 text-center transition hover:border-[#2f837c] hover:bg-[#edf6f3]"
+        >
+          <Upload className="size-5 text-[#2f837c]" aria-hidden="true" />
+          <span className="mt-2 text-sm font-bold">Choose or drop a file</span>
+          <span className="mt-1 text-xs text-[#53627b]">{spec.detail} · {spec.limit}</span>
+        </label>
+      )}
+      <input
+        key={inputKey}
+        id={inputId}
+        type="file"
+        className="sr-only"
+        accept={spec.accept}
+        disabled={disabled}
+        onChange={pickFile}
+        aria-label={`Choose ${spec.title.toLowerCase()} file`}
+      />
+    </article>
+  );
+}
+
+function LoadingPanel({ message }: { message: string }) {
+  const steps = ["Validate files", "Extract + normalize", "Hydrate trusted evidence"];
+  return (
+    <section className="animate-rise rounded-[28px] border border-[#2f837c]/20 bg-[#14213d] p-6 text-white shadow-card sm:p-8" aria-live="polite" aria-busy="true">
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-4">
+          <span className="relative grid size-13 shrink-0 place-items-center rounded-2xl bg-white/10">
+            <span className="absolute inset-2 animate-soft-pulse rounded-xl bg-[#2f837c]/35" />
+            <LoaderCircle className="relative size-6 animate-spin text-[#f8ebc8]" aria-hidden="true" />
+          </span>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#b8dcd6]">Local processing</p>
+            <p className="mt-1 text-lg font-bold">{message}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {steps.map((step, index) => (
+            <span key={step} className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/70">
+              {String(index + 1).padStart(2, "0")} {step}
+            </span>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SourceMapSummary({ processed, verified }: { processed: ProcessedSources; verified: boolean }) {
+  return (
+    <section className="rounded-[28px] border border-[#14213d]/10 bg-white/70 p-6 shadow-card sm:p-8" aria-labelledby="source-map-title">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">Freshly extracted</p>
+          <h2 id="source-map-title" className="mt-2 text-2xl font-bold tracking-[-0.04em]">Trusted source map</h2>
+          <p className="mt-2 text-sm leading-6 text-[#53627b]">Every locator below was rebuilt from the files currently in memory.</p>
+        </div>
+        <span className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ${verified ? "bg-[#dcece8] text-[#1f625e]" : "bg-[#f8ebc8] text-[#765511]"}`}>
+          {verified ? <ShieldCheck className="size-4" /> : <Lock className="size-4" />}
+          {verified ? "Sample fingerprint verified" : "Fixture kept locked"}
+        </span>
+      </div>
+      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        {(["slides", "transcript", "notes"] as const).map((sourceType) => {
+          const chunks = processed.chunks.filter((chunk) => chunk.sourceType === sourceType);
+          return (
+            <div key={sourceType} className="rounded-2xl border border-[#14213d]/10 bg-[#f7f4ec]/80 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-bold">{SOURCE_NAMES[sourceType]}</span>
+                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#53627b]">{chunks.length} chunks</span>
+              </div>
+              <p className="mt-4 truncate text-xs text-[#53627b]" title={chunks[0]?.sourceName}>{chunks[0]?.sourceName}</p>
+              <p className="mt-1 text-xs font-bold text-[#2f837c]">
+                {chunks[0]?.locator}{chunks.length > 1 ? ` → ${chunks.at(-1)?.locator}` : ""}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-4 text-xs text-[#53627b]">{processed.totalCharacters.toLocaleString()} normalized characters · {processed.chunks.length} chunks total</p>
+    </section>
+  );
+}
+
+function MismatchPanel({ onTryDemo }: { onTryDemo: () => void }) {
+  return (
+    <section className="rounded-[28px] border border-[#daa83c]/35 bg-[#fff9e9] p-6 sm:p-8" role="status">
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex max-w-3xl items-start gap-4">
+          <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#f8ebc8] text-[#765511]">
+            <Lock className="size-5" aria-hidden="true" />
+          </span>
+          <div>
+            <h2 className="text-lg font-bold tracking-[-0.025em]">These sources parsed successfully—but they are not the sample.</h2>
+            <p className="mt-2 text-sm leading-6 text-[#53627b]">The simulated assessment is fingerprint-locked so it can never attach sample claims to arbitrary material. Your source map remains available above.</p>
+          </div>
+        </div>
+        <button type="button" onClick={onTryDemo} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
+          <Sparkles className="size-4" /> Load included demo
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ScorePanel({ result }: { result: DemoAnalysisResult }) {
+  const { score, counts, total } = result.metrics;
+  const scoreLabel = score >= 80 ? "Strong coverage" : score >= 60 ? "Important gaps found" : "Needs a careful pass";
+  const countItems: readonly { status: AssessmentStatus; label: string; color: string }[] = [
+    { status: "covered", label: "Covered", color: "bg-[#2f837c]" },
+    { status: "partial", label: "Partial", color: "bg-[#daa83c]" },
+    { status: "missing", label: "Missing", color: "bg-[#ef6b5a]" },
+    { status: "contradiction", label: "Contradictions", color: "bg-[#376ab4]" },
+  ];
+
+  return (
+    <section className="overflow-hidden rounded-[30px] bg-[#14213d] text-white shadow-[0_28px_80px_rgba(20,33,61,0.18)]" aria-labelledby="coverage-title">
+      <div className="grid lg:grid-cols-[360px_1fr]">
+        <div className="relative flex min-h-82 items-center justify-center overflow-hidden border-b border-white/10 p-8 lg:border-b-0 lg:border-r">
+          <div className="absolute -left-10 -top-12 size-44 rounded-full bg-[#2f837c]/25 blur-2xl" />
+          <div className="relative grid size-58 place-items-center rounded-full" style={{ background: `conic-gradient(#ef6b5a 0 ${score * 3.6}deg, rgba(255,255,255,0.1) ${score * 3.6}deg 360deg)` }}>
+            <div className="grid size-48 place-items-center rounded-full bg-[#14213d] text-center shadow-inner">
+              <div>
+                <span className="display-face text-7xl leading-none">{score}</span>
+                <span className="ml-1 text-xl text-white/60">%</span>
+                <p className="mt-2 text-xs font-bold uppercase tracking-[0.15em] text-[#b8dcd6]">Coverage score</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="p-6 sm:p-9 lg:p-11">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-[#b8dcd6]">
+                <span className="size-1.5 rounded-full bg-[#ef6b5a]" /> Simulated analysis · real evidence
+              </p>
+              <h2 id="coverage-title" className="mt-3 text-3xl font-bold tracking-[-0.045em] sm:text-4xl">{scoreLabel}</h2>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-white/65">{result.hydrated.summary}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/55">{total} concepts audited</div>
+          </div>
+          <div className="mt-8 grid grid-cols-2 gap-3 xl:grid-cols-4">
+            {countItems.map((item) => (
+              <div key={item.status} className="rounded-2xl border border-white/10 bg-white/[0.055] p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`size-2 rounded-full ${item.color}`} />
+                  <span className="display-face text-3xl">{counts[item.status]}</span>
+                </div>
+                <p className="mt-3 text-xs font-bold uppercase tracking-[0.12em] text-white/55">{item.label}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-5 flex items-center gap-2 text-xs text-white/45"><Lock className="size-3.5" /> Score calculated in app code: covered + half of partial.</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EvidenceChips({ evidence }: { evidence: readonly HydratedEvidence[] }) {
+  return (
+    <div className="mt-5 flex flex-wrap gap-2">
+      {evidence.slice(0, 3).map((item) => (
+        <span key={item.chunkId} className="inline-flex items-center gap-1.5 rounded-full border border-[#14213d]/10 bg-[#f7f4ec] px-2.5 py-1.5 text-[11px] font-bold text-[#53627b]">
+          <span className={`size-1.5 rounded-full ${item.chunk.sourceType === "notes" ? "bg-[#376ab4]" : "bg-[#2f837c]"}`} />
+          {SOURCE_NAMES[item.chunk.sourceType]} · {item.chunk.locator}
+        </span>
+      ))}
+      {evidence.length > 3 && <span className="px-2 py-1.5 text-[11px] font-bold text-[#53627b]">+{evidence.length - 3} more</span>}
+    </div>
+  );
+}
+
+function IssueCard({ assessment, onOpen }: { assessment: HydratedConceptAssessment; onOpen: () => void }) {
+  if (assessment.status === "covered") return null;
+  const meta = STATUS_META[assessment.status];
+  const Icon = meta.icon;
+  return (
+    <article className={`animate-rise rounded-[24px] border border-[#14213d]/10 border-l-4 ${meta.accent} bg-white/75 p-5 shadow-[0_12px_35px_rgba(20,33,61,0.055)] sm:p-6`}>
+      <div className="flex items-start justify-between gap-4">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] ${meta.pill}`}>
+          <Icon className="size-3.5" aria-hidden="true" /> {meta.label}
+        </span>
+        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#53627b]">{assessment.importance}</span>
+      </div>
+      <h3 className="mt-5 text-xl font-bold tracking-[-0.035em]">{assessment.title}</h3>
+      <p className="mt-3 text-sm leading-6 text-[#53627b]">{assessment.explanation}</p>
+      <EvidenceChips evidence={assessment.evidence} />
+      <button type="button" onClick={onOpen} className="mt-6 inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#14213d] px-4 text-sm font-bold text-white transition hover:bg-[#2f837c]">
+        <Eye className="size-4" aria-hidden="true" /> Inspect evidence <ChevronRight className="size-4" aria-hidden="true" />
+      </button>
+    </article>
+  );
+}
+
+function IssuesPanel({ result, onOpen }: { result: DemoAnalysisResult; onOpen: (id: string) => void }) {
+  const [filter, setFilter] = useState<IssueFilter>("all");
+  const issues = useMemo(
+    () => result.hydrated.assessments
+      .filter((assessment): assessment is HydratedConceptAssessment & { status: IssueStatus } => assessment.status !== "covered")
+      .map((assessment, index) => ({ assessment, index }))
+      .sort((left, right) => {
+        const importance = (left.assessment.importance === "core" ? 0 : 1) - (right.assessment.importance === "core" ? 0 : 1);
+        const status = STATUS_RANK[left.assessment.status] - STATUS_RANK[right.assessment.status];
+        return importance || status || left.index - right.index;
+      })
+      .map(({ assessment }) => assessment),
+    [result],
+  );
+  const visibleIssues = filter === "all" ? issues : issues.filter((issue) => issue.status === filter);
+
+  return (
+    <section aria-labelledby="review-title">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">Review queue</p>
+          <h2 id="review-title" className="mt-2 text-3xl font-bold tracking-[-0.045em] sm:text-4xl">Close the important gaps.</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#53627b]">Core findings rise first. Open a card to compare the claim against fresh source excerpts.</p>
+        </div>
+        <div className="flex max-w-full gap-1 overflow-x-auto rounded-2xl border border-[#14213d]/10 bg-white/65 p-1.5" aria-label="Filter review issues" role="group">
+          {FILTERS.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              aria-pressed={filter === item.value}
+              onClick={() => setFilter(item.value)}
+              className={`min-h-9 shrink-0 rounded-xl px-3 text-xs font-bold transition ${filter === item.value ? "bg-[#14213d] text-white" : "text-[#53627b] hover:bg-[#14213d]/5"}`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-7 grid gap-4 lg:grid-cols-2">
+        {visibleIssues.map((assessment) => <IssueCard key={assessment.id} assessment={assessment} onOpen={() => onOpen(assessment.id)} />)}
+      </div>
+      {visibleIssues.length === 0 && <p className="mt-7 rounded-2xl border border-[#14213d]/10 bg-white/60 p-6 text-sm text-[#53627b]">No findings in this category.</p>}
+    </section>
+  );
+}
+
+function PatchPanel({ markdown }: { markdown: string }) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+
+  const copyWithSelectionFallback = (): boolean => {
+    const textarea = document.createElement("textarea");
+    textarea.value = markdown;
+    textarea.readOnly = true;
+    textarea.style.position = "fixed";
+    textarea.style.inset = "0 auto auto -9999px";
+    document.body.append(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, markdown.length);
+    try {
+      return typeof document.execCommand === "function" && document.execCommand("copy");
+    } finally {
+      textarea.remove();
+    }
+  };
+
+  const copyMarkdown = async () => {
+    try {
+      if (navigator.clipboard?.writeText === undefined) {
+        if (!copyWithSelectionFallback()) throw new Error("Clipboard unavailable.");
+      } else {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = window.setTimeout(
+            () => reject(new Error("Clipboard timed out.")),
+            1_200,
+          );
+          Promise.resolve(navigator.clipboard.writeText(markdown)).then(
+            () => {
+              window.clearTimeout(timeout);
+              resolve();
+            },
+            (clipboardError: unknown) => {
+              window.clearTimeout(timeout);
+              reject(clipboardError);
+            },
+          );
+        }).catch((clipboardError: unknown) => {
+          if (!copyWithSelectionFallback()) throw clipboardError;
+        });
+      }
+      setCopyState("copied");
+      window.setTimeout(() => setCopyState("idle"), 1800);
+    } catch {
+      setCopyState("error");
+    }
+  };
+
+  const downloadMarkdown = () => {
+    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "lectureweaver-additions.md";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  return (
+    <section className="overflow-hidden rounded-[30px] border border-[#14213d]/10 bg-white/80 shadow-card" aria-labelledby="patch-title">
+      <div className="flex flex-col gap-5 border-b border-[#14213d]/10 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#ef6b5a]">Ready to merge</p>
+          <h2 id="patch-title" className="mt-2 text-3xl font-bold tracking-[-0.045em]">Suggested additions</h2>
+          <p className="mt-2 text-sm text-[#53627b]">Generated deterministically from actionable findings, with evidence locators included.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={copyMarkdown} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#14213d]/15 bg-white px-4 text-sm font-bold hover:bg-[#f7f4ec]">
+            {copyState === "copied" ? <Check className="size-4 text-[#2f837c]" /> : <Clipboard className="size-4" />}
+            {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy Markdown"}
+          </button>
+          <button type="button" onClick={downloadMarkdown} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#ef6b5a] px-4 text-sm font-bold text-white hover:bg-[#db5849]">
+            <Download className="size-4" /> Download .md
+          </button>
+        </div>
+      </div>
+      <div className="relative bg-[#111a30] p-5 sm:p-8">
+        <div className="mb-4 flex items-center gap-2" aria-hidden="true">
+          <span className="size-2.5 rounded-full bg-[#ef6b5a]" />
+          <span className="size-2.5 rounded-full bg-[#daa83c]" />
+          <span className="size-2.5 rounded-full bg-[#2f837c]" />
+          <span className="ml-2 text-[10px] font-bold uppercase tracking-[0.14em] text-white/35">lectureweaver-additions.md</span>
+        </div>
+        <pre className="max-h-[34rem] overflow-auto whitespace-pre-wrap break-words font-mono text-[13px] leading-6 text-[#e8edf5]">{markdown}</pre>
+      </div>
+      <p className="sr-only" aria-live="polite">{copyState === "copied" ? "Markdown copied to clipboard." : copyState === "error" ? "Could not access the clipboard." : ""}</p>
+    </section>
+  );
+}
+
+function EvidenceDrawer({ assessment, onClose }: { assessment: HydratedConceptAssessment; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.body.style.overflow = "hidden";
+    closeRef.current?.focus();
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = "";
+      previouslyFocused?.focus();
+    };
+  }, [onClose]);
+
+  const status = assessment.status === "covered" ? null : STATUS_META[assessment.status];
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-end bg-[#091124]/55 backdrop-blur-sm sm:items-stretch" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <aside role="dialog" aria-modal="true" aria-labelledby="evidence-title" className="animate-rise flex max-h-[92vh] w-full flex-col rounded-t-[30px] bg-[#f7f4ec] shadow-2xl sm:max-h-none sm:max-w-[620px] sm:rounded-none sm:rounded-l-[30px]">
+        <div className="flex items-start justify-between gap-5 border-b border-[#14213d]/10 p-6 sm:p-8">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#2f837c]">Evidence trail</p>
+            <h2 id="evidence-title" className="mt-2 text-2xl font-bold tracking-[-0.04em]">{assessment.title}</h2>
+            {status && <span className={`mt-3 inline-flex rounded-full px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] ${status.pill}`}>{status.label}</span>}
+          </div>
+          <button ref={closeRef} type="button" onClick={onClose} className="grid size-10 shrink-0 place-items-center rounded-full border border-[#14213d]/10 bg-white hover:bg-[#fee4dd]" aria-label="Close evidence panel">
+            <X className="size-5" />
+          </button>
+        </div>
+        <div className="flex-1 space-y-4 overflow-y-auto p-5 sm:p-8">
+          <p className="text-sm leading-6 text-[#53627b]">{assessment.explanation}</p>
+          {assessment.evidence.map((item) => (
+            <article key={item.chunkId} className="rounded-2xl border border-[#14213d]/10 bg-white p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="rounded-full bg-[#dcece8] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#1f625e]">{SOURCE_NAMES[item.chunk.sourceType]}</span>
+                <span className="text-xs font-bold text-[#2f837c]">{item.chunk.locator}</span>
+              </div>
+              <p className="mt-3 text-xs font-bold text-[#14213d]">{item.chunk.sourceName}</p>
+              {item.chunk.headingPath?.length ? <p className="mt-1 text-xs text-[#53627b]">{item.chunk.headingPath.join(" › ")}</p> : null}
+              <blockquote className="mt-4 border-l-2 border-[#ef6b5a] pl-4 text-sm leading-6 text-[#37445c]">“{item.chunk.text}”</blockquote>
+              <p className="mt-4 rounded-xl bg-[#f7f4ec] p-3 text-xs leading-5 text-[#53627b]"><strong className="text-[#14213d]">Why it matters:</strong> {item.relevance}</p>
+            </article>
+          ))}
+        </div>
+        <div className="border-t border-[#14213d]/10 bg-white/65 p-5 sm:px-8">
+          <p className="flex items-start gap-2 text-xs leading-5 text-[#53627b]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#2f837c]" /> Names, locators, headings, and excerpts come from the files just parsed—not from the fixture.</p>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function EmptyPreview() {
+  const stages = [
+    { number: "01", title: "Extract", text: "PDF pages and numbered paragraphs" },
+    { number: "02", title: "Verify", text: "Ordered normalized fingerprints" },
+    { number: "03", title: "Hydrate", text: "Trusted evidence and Markdown" },
+  ];
+  return (
+    <section className="rounded-[28px] border border-[#14213d]/10 bg-[#eee9dd]/65 p-6 sm:p-8" aria-label="How the demo works">
+      <div className="grid gap-4 md:grid-cols-3">
+        {stages.map((stage, index) => (
+          <div key={stage.number} className="relative rounded-2xl bg-white/65 p-5">
+            <span className="text-xs font-bold tracking-[0.16em] text-[#ef6b5a]">{stage.number}</span>
+            <h3 className="mt-5 text-lg font-bold">{stage.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-[#53627b]">{stage.text}</p>
+            {index < stages.length - 1 && <ChevronRight className="absolute -right-3 top-1/2 z-10 hidden size-6 rounded-full bg-[#14213d] p-1 text-white md:block" />}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function LectureWeaver() {
+  const [files, setFiles] = useState<Partial<SourceFiles>>({});
+  const [processed, setProcessed] = useState<ProcessedSources | null>(null);
+  const [result, setResult] = useState<DemoAnalysisResult | null>(null);
+  const [mode, setMode] = useState<PipelineMode>("idle");
+  const [loadingMessage, setLoadingMessage] = useState("Checking file safety…");
+  const [error, setError] = useState<string | null>(null);
+  const [selectedAssessmentId, setSelectedAssessmentId] = useState<string | null>(null);
+  const [inputKey, setInputKey] = useState(0);
+  const outputRef = useRef<HTMLDivElement>(null);
+  const loading = mode === "loading";
+  const ready = hasAllFiles(files);
+
+  const selectedAssessment = useMemo(
+    () => result?.hydrated.assessments.find((assessment) => assessment.id === selectedAssessmentId) ?? null,
+    [result, selectedAssessmentId],
+  );
+
+  const updateFile = (sourceType: SourceType, file: File) => {
+    setFiles((current) => ({ ...current, [sourceType]: file }));
+    setProcessed(null);
+    setResult(null);
+    setMode("idle");
+    setError(null);
+  };
+
+  const runPipeline = async (sourceFiles: SourceFiles) => {
+    setMode("loading");
+    setError(null);
+    setResult(null);
+    setProcessed(null);
+    setLoadingMessage("Validating three local files…");
+    await nextPaint();
+
+    try {
+      setLoadingMessage("Extracting pages and paragraph structure…");
+      const nextProcessed = await processSourceFiles(sourceFiles);
+      setProcessed(nextProcessed);
+      setLoadingMessage("Verifying the sample and hydrating evidence…");
+      await nextPaint();
+
+      try {
+        const nextResult = await runFixtureAnalysis(nextProcessed);
+        setResult(nextResult);
+        setMode("ready");
+      } catch (fixtureError: unknown) {
+        if (fixtureError instanceof DemoFingerprintMismatchError) {
+          setMode("source-map");
+        } else {
+          throw fixtureError;
+        }
+      }
+      window.setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    } catch (pipelineError: unknown) {
+      setError(errorMessage(pipelineError));
+      setMode("error");
+    }
+  };
+
+  const tryDemo = async () => {
+    setMode("loading");
+    setError(null);
+    setLoadingMessage("Loading the included sample files…");
+    await nextPaint();
+    try {
+      const demoFiles = await loadDemoFiles();
+      setFiles(demoFiles);
+      await runPipeline(demoFiles);
+    } catch (demoError: unknown) {
+      setError(errorMessage(demoError));
+      setMode("error");
+    }
+  };
+
+  const reset = () => {
+    setFiles({});
+    setProcessed(null);
+    setResult(null);
+    setMode("idle");
+    setError(null);
+    setSelectedAssessmentId(null);
+    setInputKey((value) => value + 1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  return (
+    <main>
+      <AppHeader onTryDemo={() => void tryDemo()} loading={loading} />
+      <Hero onTryDemo={() => void tryDemo()} loading={loading} />
+
+      <section className="mx-auto max-w-[1440px] px-5 py-16 sm:px-8 sm:py-20 lg:px-12" aria-labelledby="upload-title">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">Your materials</p>
+            <h2 id="upload-title" className="mt-2 text-3xl font-bold tracking-[-0.045em] sm:text-4xl">Build a trusted source map.</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#53627b]">Choose all three files. Parsing happens in this tab; nothing is sent to an application server.</p>
+          </div>
+          {(Object.keys(files).length > 0 || processed) && (
+            <button type="button" onClick={reset} disabled={loading} className="inline-flex min-h-10 w-fit items-center gap-2 rounded-xl border border-[#14213d]/15 bg-white/60 px-4 text-sm font-bold hover:bg-white disabled:opacity-50">
+              <RotateCcw className="size-4" /> Reset
+            </button>
+          )}
+        </div>
+
+        <div className="mt-8 grid gap-4 lg:grid-cols-3">
+          {SOURCE_SPECS.map((spec) => (
+            <FileCard key={spec.sourceType} spec={spec} file={files[spec.sourceType]} inputKey={inputKey} disabled={loading} onSelect={updateFile} />
+          ))}
+        </div>
+
+        <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-[#14213d]/10 bg-white/50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="flex items-center gap-2 text-xs leading-5 text-[#53627b]"><Lock className="size-4 shrink-0 text-[#2f837c]" /> Local-only processing · PDF 10 MiB · text 1 MiB each · no silent truncation</p>
+          <button
+            type="button"
+            disabled={!ready || loading}
+            onClick={() => { if (ready) void runPipeline(files); }}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white transition hover:bg-[#1f625e] disabled:cursor-not-allowed disabled:bg-[#14213d]/20"
+          >
+            {loading ? <LoaderCircle className="size-4 animate-spin" /> : <ScanText className="size-4" />}
+            Process sources
+          </button>
+        </div>
+      </section>
+
+      <div ref={outputRef} className="scroll-mt-5">
+        <div className="mx-auto max-w-[1440px] space-y-8 px-5 pb-20 sm:px-8 lg:px-12">
+          {mode === "loading" && <LoadingPanel message={loadingMessage} />}
+          {mode === "error" && error && (
+            <section className="rounded-[24px] border border-[#ef6b5a]/35 bg-[#fff0ec] p-6" role="alert">
+              <div className="flex items-start gap-4">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#fee4dd] text-[#a83f32]"><AlertTriangle className="size-5" /></span>
+                <div><h2 className="font-bold">We could not process those sources.</h2><p className="mt-2 text-sm leading-6 text-[#53627b]">{error}</p><p className="mt-2 text-xs text-[#53627b]">Replace the affected file and retry, or load the included demo.</p></div>
+              </div>
+            </section>
+          )}
+          {processed && mode !== "loading" && <SourceMapSummary processed={processed} verified={mode === "ready"} />}
+          {mode === "source-map" && <MismatchPanel onTryDemo={() => void tryDemo()} />}
+          {mode === "idle" && <EmptyPreview />}
+
+          {result && mode === "ready" && (
+            <div className="space-y-18 animate-rise">
+              <ScorePanel result={result} />
+              <IssuesPanel result={result} onOpen={setSelectedAssessmentId} />
+              <PatchPanel markdown={result.markdown} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <footer className="border-t border-[#14213d]/10 bg-[#eee9dd]/70">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 py-8 text-xs text-[#53627b] sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-12">
+          <div className="flex items-center gap-3"><LogoMark /><span><strong className="text-[#14213d]">LectureWeaver</strong><br />OpenAI Build Week · Education</span></div>
+          <p className="max-w-xl leading-5 sm:text-right">Milestone 1 uses a schema-valid simulated analysis only for the fingerprint-matched sample. No API key, account, database, or application upload.</p>
+        </div>
+      </footer>
+
+      {selectedAssessment && <EvidenceDrawer assessment={selectedAssessment} onClose={() => setSelectedAssessmentId(null)} />}
+    </main>
+  );
+}

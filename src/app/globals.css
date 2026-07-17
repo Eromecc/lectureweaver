@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #14213d;
+  --ink-soft: #53627b;
+  --paper: #f7f4ec;
+  --paper-deep: #eee9dd;
+  --teal: #2f837c;
+  --teal-dark: #1f625e;
+  --teal-pale: #dcece8;
+  --coral: #ef6b5a;
+  --coral-pale: #fee4dd;
+  --gold: #daa83c;
+  --gold-pale: #f8ebc8;
+  --blue: #376ab4;
+  --blue-pale: #dfe8f7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 4% 3%, rgb(47 131 124 / 9%), transparent 24rem),
+    radial-gradient(circle at 96% 18%, rgb(239 107 90 / 8%), transparent 25rem),
+    var(--paper);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button,
+label {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: var(--gold-pale);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 3px solid rgb(55 106 180 / 55%);
+  outline-offset: 3px;
+}
+
+.display-face {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.045em;
+}
+
+.fine-grid {
+  background-image:
+    linear-gradient(rgb(20 33 61 / 4%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(20 33 61 / 4%) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.shadow-card {
+  box-shadow: 0 20px 60px rgb(20 33 61 / 9%);
+}
+
+.animate-rise {
+  animation: rise 500ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.animate-soft-pulse {
+  animation: soft-pulse 1.7s ease-in-out infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

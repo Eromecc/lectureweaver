@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "algorithm": "SHA-256",
+  "normalization": "ordered-source-chunks-v1",
+  "fingerprints": {
+    "slides": "488daf261775c532f4f66205c68a5299e752ca179dffa59bd699b514865fcd10",
+    "transcript": "3c671b20d8768f369504d47ef0c6ae4db21bc74b81d18f4473592173669ad43d",
+    "notes": "37e3addcdf42a70f08f9e5d08770eea47551dd12ed6a8ee1e31c50c502c6317a"
+  }
+}
