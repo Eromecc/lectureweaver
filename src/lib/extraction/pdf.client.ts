@@ -45,32 +45,37 @@ function textItemsToLines(items: unknown[]): string {
 
 export async function extractPdfPages(file: File): Promise<PdfPageText[]> {
   try {
-    const pdfjs = await import("pdfjs-dist");
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
+      "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
       import.meta.url,
     ).toString();
 
     const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
-    const document = await loadingTask.promise;
-    if (document.numPages > MAX_PDF_PAGES) {
-      await loadingTask.destroy();
-      throw new SourceProcessingError(
-        "too_many_pages",
-        "slides",
-        `The PDF has more than the ${MAX_PDF_PAGES}-page demo limit.`,
-      );
-    }
+    try {
+      const document = await loadingTask.promise;
+      if (document.numPages > MAX_PDF_PAGES) {
+        throw new SourceProcessingError(
+          "too_many_pages",
+          "slides",
+          `The PDF has more than the ${MAX_PDF_PAGES}-page demo limit.`,
+        );
+      }
 
-    const pages: PdfPageText[] = [];
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber);
-      const content = await page.getTextContent();
-      pages.push({ pageNumber, text: textItemsToLines(content.items) });
-      page.cleanup();
+      const pages: PdfPageText[] = [];
+      for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+        const page = await document.getPage(pageNumber);
+        try {
+          const content = await page.getTextContent();
+          pages.push({ pageNumber, text: textItemsToLines(content.items) });
+        } finally {
+          page.cleanup();
+        }
+      }
+      return pages;
+    } finally {
+      await loadingTask.destroy();
     }
-    await loadingTask.destroy();
-    return pages;
   } catch (error: unknown) {
     if (error instanceof SourceProcessingError) throw error;
     const message = error instanceof Error ? error.message.toLowerCase() : "";
