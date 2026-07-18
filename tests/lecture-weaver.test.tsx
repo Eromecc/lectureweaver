@@ -374,6 +374,101 @@ afterEach(() => {
 });
 
 describe("LectureWeaver client workflow", () => {
+  it("switches the interface between English and Simplified Chinese", async () => {
+    const user = userEvent.setup();
+
+    render(<LectureWeaver />);
+
+    expect(document.documentElement).toHaveAttribute("lang", "en");
+    expect(
+      screen.getByRole("heading", {
+        name: "Turn lectures into notes you can study.",
+      }),
+    ).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", { name: "Language: 简体中文" }),
+    );
+
+    expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
+    expect(
+      screen.getByRole("heading", {
+        name: /把课堂内容变成真正能用来\s+学习的笔记。/,
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("API 密钥应该填在哪里？")).toBeVisible();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "语言: English" }),
+    );
+
+    expect(document.documentElement).toHaveAttribute("lang", "en");
+    expect(
+      screen.getByRole("heading", {
+        name: "Turn lectures into notes you can study.",
+      }),
+    ).toBeVisible();
+  });
+
+  it("keeps an in-flight demo active and localizes the completed study pack", async () => {
+    const user = userEvent.setup();
+    const files = sourceFiles();
+    const processing = deferred<ProcessedSources>();
+    mockLoadDemoFiles.mockResolvedValue(files);
+    mockProcessSourceFiles.mockReturnValue(processing.promise);
+    mockRunFixtureAnalysis.mockResolvedValue(result);
+
+    render(<LectureWeaver />);
+
+    const headerDemoButton = screen.getByRole("button", { name: "Try demo" });
+    await user.click(headerDemoButton);
+    expect(headerDemoButton).toBeDisabled();
+
+    await user.click(
+      screen.getByRole("button", { name: "Language: 简体中文" }),
+    );
+
+    expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
+    expect(
+      screen.getByRole("button", { name: "体验演示" }),
+    ).toBeDisabled();
+
+    await act(async () => {
+      processing.resolve(processed);
+      await processing.promise;
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "需要仔细复查" }),
+    ).toBeVisible();
+    expect(screen.getByText("示例指纹已验证")).toBeVisible();
+    expect(screen.getByText("已审查 4 个概念")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "增强笔记" })).toBeVisible();
+    expect(
+      screen.getByRole("navigation", { name: "增强笔记目录" }),
+    ).toBeVisible();
+
+    expect(screen.getByRole("button", { name: "增强笔记" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "审查记录" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "仅看改动" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Anki 卡片 · 4" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "音频指南" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "审查记录" }));
+    expect(screen.getByRole("heading", { name: "补齐重要缺口。" })).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "查看证据" }).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "音频指南" }));
+    expect(
+      screen.getByRole("heading", { name: "音频学习指南" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "OpenAI 音频不可用" }),
+    ).toBeDisabled();
+    expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
+  });
+
   it("runs the one-click demo through an honest loading state to validated results", async () => {
     const user = userEvent.setup();
     const files = sourceFiles();
@@ -406,6 +501,15 @@ describe("LectureWeaver client workflow", () => {
     expect(
       screen.getByRole("button", { name: "Build local source map" }),
     ).toBeDisabled();
+
+    await user.click(
+      screen.getByRole("button", { name: "Language: 简体中文" }),
+    );
+    expect(screen.getByText("正在提取页面和段落结构…")).toBeVisible();
+    expect(
+      screen.queryByText("Extracting pages and paragraph structure…"),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "语言: English" }));
 
     await act(async () => {
       processing.resolve(processed);
@@ -518,6 +622,36 @@ describe("LectureWeaver client workflow", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(openButton).toHaveFocus();
+  });
+
+  it("retranslates an open evidence drawer when the interface language changes", async () => {
+    const user = await renderReady();
+    await user.click(screen.getByRole("button", { name: "Audit trail" }));
+    const issueCard = screen
+      .getByRole("heading", { name: "Feedback correction loop" })
+      .closest("article");
+    expect(issueCard).not.toBeNull();
+
+    await user.click(
+      within(issueCard as HTMLElement).getByRole("button", {
+        name: "Inspect evidence",
+      }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Feedback correction loop",
+    });
+    expect(within(dialog).getByText("Audit evidence")).toBeVisible();
+    expect(within(dialog).getByText("Missing explanation")).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", { name: "Language: 简体中文" }),
+    );
+
+    expect(within(dialog).getByText("审查证据")).toBeVisible();
+    expect(within(dialog).getByText("缺少解释")).toBeVisible();
+    expect(
+      within(dialog).getByRole("button", { name: "关闭证据面板" }),
+    ).toBeVisible();
   });
 
   it("shows a local validation error and recovers after replacing the file", async () => {
@@ -865,6 +999,44 @@ describe("LectureWeaver client workflow", () => {
 
     expect(
       await screen.findByRole("heading", { name: "Needs a careful pass" }),
+    ).toBeVisible();
+    expect(mockLoadDemoFiles).toHaveBeenCalledTimes(2);
+    expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("retranslates a failed no-key demo and retries it in Chinese", async () => {
+    const user = userEvent.setup();
+    const files = sourceFiles();
+    mockLoadDemoFiles
+      .mockRejectedValueOnce(new Error("The sample asset could not be loaded."))
+      .mockResolvedValueOnce(files);
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRunFixtureAnalysis.mockResolvedValue(result);
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    await user.click(
+      screen.getByRole("button", { name: "Try the sample lecture" }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    await user.click(
+      screen.getByRole("button", { name: "Language: 简体中文" }),
+    );
+
+    expect(
+      within(alert).getByRole("heading", { name: "内置演示未能加载。" }),
+    ).toBeVisible();
+    expect(alert).toHaveTextContent("The sample asset could not be loaded.");
+    expect(alert).toHaveTextContent(
+      "请对同一套内置样例重试；不会发起实时模型请求。",
+    );
+
+    await user.click(
+      within(alert).getByRole("button", { name: "重试演示" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "需要仔细复查" }),
     ).toBeVisible();
     expect(mockLoadDemoFiles).toHaveBeenCalledTimes(2);
     expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();

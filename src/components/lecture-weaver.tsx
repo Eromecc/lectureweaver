@@ -78,6 +78,18 @@ import {
   SourceProcessingError,
 } from "@/lib/extraction";
 import type { ProcessedSources, SourceFiles } from "@/lib/extraction";
+import {
+  createUiTranslator,
+  translateUiPlural,
+  UI_LOCALE_OPTIONS,
+} from "@/lib/i18n/ui";
+import type {
+  UiLocale,
+  UiMessageKey,
+  UiMessageValues,
+  UiTranslator,
+} from "@/lib/i18n/ui";
+import { ApiSetupGuide } from "@/components/api-setup-guide";
 
 type SourceSpec = {
   sourceType: SourceType;
@@ -91,6 +103,10 @@ type SourceSpec = {
 
 type PipelineMode = "idle" | "loading" | "ready" | "source-map" | "error";
 type LoadingKind = "demo" | "live" | "local";
+type LoadingMessage = {
+  key: UiMessageKey;
+  values?: UiMessageValues;
+};
 type PipelineErrorState = {
   kind: "processing" | "live" | "demo";
   message: string;
@@ -120,6 +136,10 @@ type EvidenceDrawerContent = {
   description: string;
   evidence: readonly HydratedEvidence[];
 };
+type EvidenceDrawerSelection =
+  | { kind: "assessment"; assessment: HydratedConceptAssessment }
+  | { kind: "section"; section: HydratedEnhancedNoteSection }
+  | { kind: "card"; card: HydratedAnkiCard };
 
 type PublicProvider = PublicProviderCatalog["providers"][number];
 
@@ -155,11 +175,11 @@ const SOURCE_SPECS: readonly SourceSpec[] = [
   },
 ] as const;
 
-const SOURCE_NAMES: Record<SourceType, string> = {
-  slides: "Slides",
-  transcript: "Transcript",
-  notes: "Notes",
-};
+function sourceName(sourceType: SourceType, t: UiTranslator): string {
+  if (sourceType === "slides") return t("source.slidesTitle");
+  if (sourceType === "transcript") return t("source.transcriptTitle");
+  return t("source.notesShortName");
+}
 
 const STATUS_META: Record<
   IssueStatus,
@@ -200,6 +220,12 @@ const STATUS_RANK: Record<IssueStatus, number> = {
   partial: 1,
   contradiction: 2,
 };
+
+function issueLabel(status: IssueStatus, t: UiTranslator): string {
+  if (status === "missing") return t("review.missingExplanation");
+  if (status === "partial") return t("review.partiallyCovered");
+  return t("review.possibleContradiction");
+}
 
 function hasAllFiles(files: Partial<SourceFiles>): files is SourceFiles {
   return files.slides !== undefined && files.transcript !== undefined && files.notes !== undefined;
@@ -284,27 +310,74 @@ function LogoMark() {
   );
 }
 
-function AppHeader({ onTryDemo, loading }: { onTryDemo: () => void; loading: boolean }) {
+function LanguageToggle({
+  locale,
+  onChange,
+  t,
+}: {
+  locale: UiLocale;
+  onChange: (locale: UiLocale) => void;
+  t: UiTranslator;
+}) {
+  return (
+    <div
+      className="flex rounded-full border border-[#14213d]/15 bg-white/70 p-1"
+      role="group"
+      aria-label={t("language.switchAria")}
+    >
+      {UI_LOCALE_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          lang={option.value}
+          aria-pressed={locale === option.value}
+          aria-label={`${t("language.label")}: ${option.label}`}
+          onClick={() => onChange(option.value)}
+          className={`min-h-8 rounded-full px-2.5 text-xs font-bold transition md:px-3 ${locale === option.value ? "bg-[#14213d] text-white" : "text-[#53627b] hover:bg-white"}`}
+        >
+          <span className="md:hidden">{option.shortLabel}</span>
+          <span className="hidden md:inline">{option.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AppHeader({
+  onTryDemo,
+  loading,
+  locale,
+  onLocaleChange,
+  t,
+}: {
+  onTryDemo: () => void;
+  loading: boolean;
+  locale: UiLocale;
+  onLocaleChange: (locale: UiLocale) => void;
+  t: UiTranslator;
+}) {
   return (
     <header className="relative z-20 border-b border-[#14213d]/10 bg-[#f7f4ec]/85 backdrop-blur-xl">
-      <div className="mx-auto flex min-h-18 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
-        <a href="#top" className="flex items-center gap-3 rounded-xl" aria-label="LectureWeaver home">
+      <div className="mx-auto flex min-h-18 max-w-[1440px] items-center justify-between px-3 sm:px-8 lg:px-12">
+        <a href="#top" className="flex items-center gap-3 rounded-xl" aria-label={t("app.homeAria")}>
           <LogoMark />
-          <span className="text-[17px] font-bold tracking-[-0.03em]">LectureWeaver</span>
+          <span className="hidden text-[17px] font-bold tracking-[-0.03em] min-[390px]:inline">LectureWeaver</span>
         </a>
-        <div className="flex items-center gap-3">
-          <span className="hidden items-center gap-1.5 rounded-full border border-[#2f837c]/20 bg-white/60 px-3 py-1.5 text-xs font-bold text-[#1f625e] sm:flex">
+        <div className="flex items-center gap-1.5 sm:gap-3">
+          <span className="hidden items-center gap-1.5 rounded-full border border-[#2f837c]/20 bg-white/60 px-3 py-1.5 text-xs font-bold text-[#1f625e] lg:flex">
             <Lock className="size-3.5" aria-hidden="true" />
-            Local demo · Optional live AI
+            {t("app.localDemoBadge")}
           </span>
+          <LanguageToggle locale={locale} onChange={onLocaleChange} t={t} />
           <button
             type="button"
             onClick={onTryDemo}
             disabled={loading}
-            className="inline-flex min-h-10 items-center gap-2 rounded-full bg-[#14213d] px-4 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#223252] disabled:cursor-wait disabled:opacity-60"
+            aria-label={t("app.tryDemo")}
+            className="inline-flex size-10 shrink-0 items-center justify-center gap-2 rounded-full bg-[#14213d] p-0 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#223252] disabled:cursor-wait disabled:opacity-60 md:h-auto md:w-auto md:min-h-10 md:px-4"
           >
             {loading ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-            Try demo
+            <span className="hidden md:inline">{t("app.tryDemo")}</span>
           </button>
         </div>
       </div>
@@ -312,7 +385,7 @@ function AppHeader({ onTryDemo, loading }: { onTryDemo: () => void; loading: boo
   );
 }
 
-function Hero({ onTryDemo, loading }: { onTryDemo: () => void; loading: boolean }) {
+function Hero({ onTryDemo, loading, t }: { onTryDemo: () => void; loading: boolean; t: UiTranslator }) {
   return (
     <section className="relative overflow-hidden border-b border-[#14213d]/10" id="top">
       <div className="fine-grid absolute inset-0 opacity-55" aria-hidden="true" />
@@ -322,32 +395,28 @@ function Hero({ onTryDemo, loading }: { onTryDemo: () => void; loading: boolean 
         <div className="max-w-4xl animate-rise">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#14213d]/10 bg-white/70 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.15em] text-[#53627b]">
             <span className="size-1.5 rounded-full bg-[#ef6b5a]" />
-            Evidence-grounded study pack
+            {t("hero.eyebrow")}
           </div>
           <h1 className="display-face max-w-4xl text-[clamp(3.4rem,8vw,7.6rem)] leading-[0.86] text-[#14213d]">
-            Turn lectures into notes you can <span className="italic text-[#2f837c]">study.</span>
+            {t("hero.headlinePrefix")} <span className="italic text-[#2f837c]">{t("hero.headlineAccent")}</span>
           </h1>
           <p className="mt-7 max-w-2xl text-lg leading-8 text-[#53627b] sm:text-xl">
-            LectureWeaver audits what is missing, rebuilds your notes into a clearer learning guide, and creates optional Anki cards—each tied back to the source that supports it.
+            {t("hero.description")}
           </p>
         </div>
 
         <div className="animate-rise rounded-[28px] border border-[#14213d]/10 bg-white/75 p-5 shadow-card sm:p-6 [animation-delay:100ms]">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#2f837c]">Judge-ready sample</p>
-              <h2 className="mt-2 text-xl font-bold tracking-[-0.035em]">Build a complete study pack in one click.</h2>
+              <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#2f837c]">{t("hero.sampleEyebrow")}</p>
+              <h2 className="mt-2 text-xl font-bold tracking-[-0.035em]">{t("hero.sampleTitle")}</h2>
             </div>
             <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#dcece8] text-[#1f625e]">
               <ShieldCheck className="size-5" aria-hidden="true" />
             </span>
           </div>
           <ul className="mt-6 space-y-3 text-sm text-[#53627b]">
-            {[
-              "Real local PDF and Markdown parsing",
-              "Reorganized notes with trusted evidence",
-              "Anki-ready cards with no API key needed",
-            ].map((item) => (
+            {[t("hero.featureParsing"), t("hero.featureNotes"), t("hero.featureAnki")].map((item) => (
               <li key={item} className="flex items-center gap-3">
                 <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#14213d] text-white">
                   <Check className="size-3" aria-hidden="true" />
@@ -363,10 +432,10 @@ function Hero({ onTryDemo, loading }: { onTryDemo: () => void; loading: boolean 
             className="mt-7 inline-flex min-h-13 w-full items-center justify-center gap-2 rounded-2xl bg-[#ef6b5a] px-5 font-bold text-white shadow-[0_12px_30px_rgba(239,107,90,0.24)] transition hover:-translate-y-0.5 hover:bg-[#db5849] disabled:cursor-wait disabled:opacity-60"
           >
             {loading ? <LoaderCircle className="size-5 animate-spin" /> : <Sparkles className="size-5" />}
-            {loading ? "Weaving the sources…" : "Try the sample lecture"}
+            {loading ? t("hero.demoLoading") : t("hero.sampleCta")}
             {!loading && <ArrowRight className="size-4" aria-hidden="true" />}
           </button>
-          <p className="mt-3 text-center text-xs text-[#53627b]">No API key · no model request · about 3 seconds</p>
+          <p className="mt-3 text-center text-xs text-[#53627b]">{t("hero.sampleMeta")}</p>
         </div>
       </div>
     </section>
@@ -379,11 +448,26 @@ type FileCardProps = {
   inputKey: number;
   disabled: boolean;
   onSelect: (sourceType: SourceType, file: File) => void;
+  t: UiTranslator;
+  locale: UiLocale;
 };
 
-function FileCard({ spec, file, inputKey, disabled, onSelect }: FileCardProps) {
+function FileCard({ spec, file, inputKey, disabled, onSelect, t, locale }: FileCardProps) {
   const Icon = spec.icon;
   const inputId = `source-${spec.sourceType}-${inputKey}`;
+  const copy = spec.sourceType === "slides"
+    ? {
+        eyebrow: t("source.slidesEyebrow"),
+        title: t("source.slidesTitle"),
+        detail: t("source.slidesDetail"),
+        limit: t("source.slidesLimit"),
+      }
+    : {
+        eyebrow: t("source.notesEyebrow"),
+        title: t("source.notesTitle"),
+        detail: t("source.notesDetail"),
+        limit: t("source.notesLimit"),
+      };
 
   const pickFile = (event: ChangeEvent<HTMLInputElement>) => {
     const selected = event.currentTarget.files?.[0];
@@ -401,8 +485,8 @@ function FileCard({ spec, file, inputKey, disabled, onSelect }: FileCardProps) {
     <article className="group relative flex min-h-60 flex-col rounded-[26px] border border-[#14213d]/10 bg-white/70 p-5 transition hover:-translate-y-1 hover:border-[#2f837c]/35 hover:shadow-card sm:p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#2f837c]">{spec.eyebrow}</p>
-          <h3 className="mt-2 text-2xl font-bold tracking-[-0.04em]">{spec.title}</h3>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#2f837c]">{copy.eyebrow}</p>
+          <h3 className="mt-2 text-2xl font-bold tracking-[-0.04em]">{copy.title}</h3>
         </div>
         <span className="grid size-11 place-items-center rounded-2xl bg-[#dcece8] text-[#1f625e] transition group-hover:rotate-3">
           <Icon className="size-5" aria-hidden="true" />
@@ -415,11 +499,11 @@ function FileCard({ spec, file, inputKey, disabled, onSelect }: FileCardProps) {
             <CircleCheck className="mt-0.5 size-5 shrink-0 text-[#2f837c]" aria-hidden="true" />
             <div className="min-w-0">
               <p className="truncate text-sm font-bold" title={file.name}>{file.name}</p>
-              <p className="mt-1 text-xs text-[#53627b]">{formatBytes(file.size)} · ready locally</p>
+              <p className="mt-1 text-xs text-[#53627b]">{formatBytes(file.size)} · {t("source.readyLocally")}</p>
             </div>
           </div>
           <label htmlFor={inputId} className="mt-5 cursor-pointer text-xs font-bold text-[#1f625e] underline decoration-[#2f837c]/30 underline-offset-4">
-            Replace file
+            {t("source.replaceFile")}
           </label>
         </div>
       ) : (
@@ -430,8 +514,8 @@ function FileCard({ spec, file, inputKey, disabled, onSelect }: FileCardProps) {
           className="mt-7 flex flex-1 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[#14213d]/20 bg-[#f7f4ec]/65 px-4 py-5 text-center transition hover:border-[#2f837c] hover:bg-[#edf6f3]"
         >
           <Upload className="size-5 text-[#2f837c]" aria-hidden="true" />
-          <span className="mt-2 text-sm font-bold">Choose or drop a file</span>
-          <span className="mt-1 text-xs text-[#53627b]">{spec.detail} · {spec.limit}</span>
+          <span className="mt-2 text-sm font-bold">{t("source.chooseOrDropFile")}</span>
+          <span className="mt-1 text-xs text-[#53627b]">{copy.detail} · {copy.limit}</span>
         </label>
       )}
       <input
@@ -442,7 +526,9 @@ function FileCard({ spec, file, inputKey, disabled, onSelect }: FileCardProps) {
         accept={spec.accept}
         disabled={disabled}
         onChange={pickFile}
-        aria-label={`Choose ${spec.title.toLowerCase()} file`}
+        aria-label={t("source.chooseFileAria", {
+          source: locale === "en" ? copy.title.toLowerCase() : copy.title,
+        })}
       />
     </article>
   );
@@ -478,6 +564,8 @@ function SpokenSourceCard({
   onTranscriptSelect,
   onAudioSelect,
   onTranscribe,
+  t,
+  locale,
 }: {
   mode: SpokenSourceMode;
   transcriptFile?: File;
@@ -490,6 +578,8 @@ function SpokenSourceCard({
   onTranscriptSelect: (file: File) => void;
   onAudioSelect: (file: File) => void;
   onTranscribe: () => void;
+  t: UiTranslator;
+  locale: UiLocale;
 }) {
   const transcriptInputId = `source-transcript-${inputKey}`;
   const audioInputId = `source-audio-${inputKey}`;
@@ -524,10 +614,10 @@ function SpokenSourceCard({
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#2f837c]">
-            02 / Spoken context
+            {t("source.transcriptEyebrow")}
           </p>
           <h3 className="mt-2 text-2xl font-bold tracking-[-0.04em]">
-            Transcript or audio
+            {t("spoken.title")}
           </h3>
         </div>
         <span className="grid size-11 place-items-center rounded-2xl bg-[#dcece8] text-[#1f625e] transition group-hover:rotate-3">
@@ -542,7 +632,7 @@ function SpokenSourceCard({
       <div
         className="mt-5 flex gap-1 rounded-xl border border-[#14213d]/10 bg-[#f7f4ec] p-1"
         role="group"
-        aria-label="Choose spoken source type"
+        aria-label={t("spoken.modeAria")}
       >
         <button
           type="button"
@@ -551,7 +641,7 @@ function SpokenSourceCard({
           onClick={() => onModeChange("transcript")}
           className={`min-h-9 flex-1 rounded-lg px-3 text-xs font-bold transition ${mode === "transcript" ? "bg-white text-[#14213d] shadow-sm" : "text-[#53627b] hover:bg-white/60"}`}
         >
-          Transcript TXT
+          {t("spoken.transcriptMode")}
         </button>
         <button
           type="button"
@@ -560,7 +650,7 @@ function SpokenSourceCard({
           onClick={() => onModeChange("audio")}
           className={`min-h-9 flex-1 rounded-lg px-3 text-xs font-bold transition ${mode === "audio" ? "bg-white text-[#14213d] shadow-sm" : "text-[#53627b] hover:bg-white/60"}`}
         >
-          Lecture audio
+          {t("spoken.audioMode")}
         </button>
       </div>
 
@@ -574,7 +664,7 @@ function SpokenSourceCard({
                   {transcriptFile.name}
                 </p>
                 <p className="mt-1 text-xs text-[#53627b]">
-                  {formatBytes(transcriptFile.size)} · ready locally
+                  {formatBytes(transcriptFile.size)} · {t("source.readyLocally")}
                 </p>
               </div>
             </div>
@@ -582,7 +672,7 @@ function SpokenSourceCard({
               htmlFor={transcriptInputId}
               className="mt-5 cursor-pointer text-xs font-bold text-[#1f625e] underline decoration-[#2f837c]/30 underline-offset-4"
             >
-              Replace file
+              {t("source.replaceFile")}
             </label>
           </div>
         ) : (
@@ -593,8 +683,8 @@ function SpokenSourceCard({
             className="mt-5 flex flex-1 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[#14213d]/20 bg-[#f7f4ec]/65 px-4 py-5 text-center transition hover:border-[#2f837c] hover:bg-[#edf6f3]"
           >
             <Upload className="size-5 text-[#2f837c]" aria-hidden="true" />
-            <span className="mt-2 text-sm font-bold">Choose or drop a transcript</span>
-            <span className="mt-1 text-xs text-[#53627b]">UTF-8 TXT · Up to 1 MiB</span>
+            <span className="mt-2 text-sm font-bold">{t("spoken.chooseTranscript")}</span>
+            <span className="mt-1 text-xs text-[#53627b]">UTF-8 TXT · {t("source.transcriptLimit")}</span>
           </label>
         )
       ) : (
@@ -614,10 +704,10 @@ function SpokenSourceCard({
                   <p className="mt-1 text-xs text-[#53627b]">
                     {formatBytes(audioFile.size)}
                     {transcriptionState.status === "ready"
-                      ? " · transcript ready"
+                      ? ` · ${t("spoken.transcriptReadySuffix")}`
                       : transcriptionState.status === "validating"
-                        ? " · checking file signature"
-                        : " · awaiting transcription"}
+                        ? ` · ${t("spoken.signatureCheckingSuffix")}`
+                        : ` · ${t("spoken.awaitingTranscriptionSuffix")}`}
                   </p>
                 </div>
               </div>
@@ -625,7 +715,7 @@ function SpokenSourceCard({
                 htmlFor={audioInputId}
                 className="mt-4 inline-flex cursor-pointer text-xs font-bold text-[#1f625e] underline decoration-[#2f837c]/30 underline-offset-4"
               >
-                Replace audio
+                {t("spoken.replaceAudio")}
               </label>
             </div>
           ) : (
@@ -636,29 +726,29 @@ function SpokenSourceCard({
               className="flex flex-1 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[#14213d]/20 bg-[#f7f4ec]/65 px-4 py-5 text-center transition hover:border-[#2f837c] hover:bg-[#edf6f3]"
             >
               <Upload className="size-5 text-[#2f837c]" aria-hidden="true" />
-              <span className="mt-2 text-sm font-bold">Choose or drop lecture audio</span>
+              <span className="mt-2 text-sm font-bold">{t("spoken.chooseAudio")}</span>
               <span className="mt-1 text-xs leading-5 text-[#53627b]">
-                FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, or WebM · Up to {Math.round(MAX_AUDIO_FILE_BYTES / 1_000_000)} MB
+                {t("spoken.audioFormats", { megabytes: Math.round(MAX_AUDIO_FILE_BYTES / 1_000_000) })}
               </span>
             </label>
           )}
 
           <div className="rounded-2xl border border-[#daa83c]/30 bg-[#fff7df] p-3 text-xs leading-5 text-[#765511]">
-            <p className="font-bold">Explicit cloud transcription</p>
+            <p className="font-bold">{t("spoken.cloudTitle")}</p>
             <p className="mt-1">
-              When you press transcribe, the raw audio bytes pass through the LectureWeaver server to OpenAI and use the deployment owner&apos;s separately billed API account. LectureWeaver neither stores nor logs the recording or transcript.
+              {t("spoken.cloudDisclosure")}
             </p>
           </div>
 
           {!audioConfigured && (
             <p className="rounded-xl bg-[#eee9dd] p-3 text-xs font-bold leading-5 text-[#53627b]">
-              OpenAI audio is not configured on this deployment. You can still use a transcript TXT file or Try demo.
+              {t("spoken.unconfigured")}
             </p>
           )}
 
           {transcriptionState.status === "error" && (
             <div className="rounded-xl border border-[#ef6b5a]/35 bg-[#fff0ec] p-3 text-xs leading-5 text-[#a83f32]" role="alert">
-              <p className="font-bold">Transcription did not finish.</p>
+              <p className="font-bold">{t("spoken.errorTitle")}</p>
               <p className="mt-1">{transcriptionState.message}</p>
             </div>
           )}
@@ -666,14 +756,14 @@ function SpokenSourceCard({
           {transcriptionState.status === "ready" && (
             <div className="rounded-2xl border border-[#14213d]/10 bg-white p-4">
               <p className="text-xs font-bold uppercase tracking-[0.13em] text-[#2f837c]">
-                Timestamped transcript ready
+                {t("spoken.timestampReady")}
               </p>
               <p className="mt-2 text-xs leading-5 text-[#53627b]">
-                {formatDuration(transcriptionState.transcription.durationSeconds)} · {transcriptionState.transcription.segments.length} segments · {transcriptionState.transcription.model}
+                {formatDuration(transcriptionState.transcription.durationSeconds)} · {translateUiPlural(locale, transcriptionState.transcription.segments.length, { one: "spoken.segmentCountOne", other: "spoken.segmentCountOther" })} · {transcriptionState.transcription.model}
               </p>
               <details className="mt-3 rounded-xl bg-[#f7f4ec]">
                 <summary className="cursor-pointer px-3 py-2 text-xs font-bold">
-                  Preview transcript
+                  {t("spoken.previewTranscript")}
                 </summary>
                 <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words border-t border-[#14213d]/10 p-3 font-sans text-xs leading-5 text-[#53627b]">
                   {transcriptionState.transcription.text}
@@ -686,8 +776,9 @@ function SpokenSourceCard({
                     transcriptionState.transcription.fileName,
                   )}
                   mimeType="text/plain;charset=utf-8"
-                  copyLabel="Copy transcript"
-                  downloadLabel="Download .txt"
+                  copyLabel={t("spoken.copyTranscript")}
+                  downloadLabel={t("spoken.downloadTranscript")}
+                  t={t}
                 />
               </div>
             </div>
@@ -715,28 +806,28 @@ function SpokenSourceCard({
               <AudioLines className="size-4" aria-hidden="true" />
             )}
             {transcribing
-              ? "Transcribing with OpenAI…"
+              ? t("spoken.transcribing")
               : transcriptionState.status === "validating"
-                ? "Checking audio…"
+                ? t("spoken.checkingAudio")
               : !audioConfigured
-                ? "OpenAI audio unavailable"
+                ? t("spoken.audioUnavailable")
               : transcriptionState.status === "ready"
-                ? "Transcribe again"
+                ? t("spoken.transcribeAgain")
                 : invalidAudio
-                  ? "Replace invalid audio"
+                  ? t("spoken.replaceInvalid")
                 : blockedProvider
-                  ? "Check OpenAI configuration"
+                  ? t("spoken.checkConfiguration")
                 : transcriptionState.status === "error" && transcriptionState.retryable
-                  ? "Retry transcription"
-                  : "Send to OpenAI & transcribe"}
+                  ? t("spoken.retry")
+                  : t("spoken.send")}
           </button>
           <p className="sr-only" aria-live="polite">
             {transcribing
-              ? "Audio transcription is in progress."
+              ? t("spoken.progressTranscribing")
               : transcriptionState.status === "validating"
-                ? "Audio validation is in progress."
+                ? t("spoken.progressValidating")
               : transcriptionState.status === "ready"
-                ? "Timestamped transcript is ready."
+                ? t("spoken.progressReady")
                 : ""}
           </p>
         </div>
@@ -750,7 +841,7 @@ function SpokenSourceCard({
         accept=".txt,text/plain"
         disabled={disabled}
         onChange={selectTranscript}
-        aria-label="Choose transcript file"
+        aria-label={t("spoken.chooseTranscriptAria")}
       />
       <input
         key={`audio-${inputKey}`}
@@ -760,25 +851,25 @@ function SpokenSourceCard({
         accept={AUDIO_FILE_EXTENSIONS.join(",")}
         disabled={disabled}
         onChange={selectAudio}
-        aria-label="Choose lecture audio file"
+        aria-label={t("spoken.chooseAudioAria")}
       />
     </article>
   );
 }
 
-function LoadingPanel({ message, kind }: { message: string; kind: LoadingKind }) {
+function LoadingPanel({ message, kind, t }: { message: string; kind: LoadingKind; t: UiTranslator }) {
   const steps =
     kind === "live"
-      ? ["Validate files", "Audit concepts", "Rebuild notes", "Create study tools", "Hydrate evidence"]
+      ? [t("pipeline.validateFiles"), t("pipeline.auditConcepts"), t("pipeline.rebuildNotes"), t("pipeline.createStudyTools"), t("pipeline.hydrateEvidence")]
       : kind === "demo"
-        ? ["Validate files", "Extract + normalize", "Verify fixture", "Build study pack", "Hydrate evidence"]
-        : ["Validate files", "Extract + normalize", "Build source map"];
+        ? [t("pipeline.validateFiles"), t("pipeline.extractNormalize"), t("pipeline.verifyFixture"), t("pipeline.buildStudyPack"), t("pipeline.hydrateEvidence")]
+        : [t("pipeline.validateFiles"), t("pipeline.extractNormalize"), t("pipeline.buildSourceMap")];
   const eyebrow =
     kind === "live"
-      ? "Live model analysis"
+      ? t("pipeline.live")
       : kind === "demo"
-        ? "No-key demo"
-        : "Local processing";
+        ? t("pipeline.demo")
+        : t("pipeline.local");
   return (
     <section className="animate-rise rounded-[28px] border border-[#2f837c]/20 bg-[#14213d] p-6 text-white shadow-card sm:p-8" aria-live="polite" aria-busy="true">
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
@@ -807,25 +898,29 @@ function LoadingPanel({ message, kind }: { message: string; kind: LoadingKind })
 function SourceMapSummary({
   processed,
   origin,
+  locale,
+  t,
 }: {
   processed: ProcessedSources;
   origin: AnalysisResult["origin"] | null;
+  locale: UiLocale;
+  t: UiTranslator;
 }) {
   const statusLabel =
     origin?.kind === "demo"
-      ? "Sample fingerprint verified"
+      ? t("sourceMap.sampleVerified")
       : origin?.kind === "live"
         ? `${origin.providerLabel} · ${origin.model}`
-        : "Local source map ready";
+        : t("sourceMap.localReady");
   const completedAnalysis = origin !== null;
 
   return (
     <section className="rounded-[28px] border border-[#14213d]/10 bg-white/70 p-6 shadow-card sm:p-8" aria-labelledby="source-map-title">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">Freshly extracted</p>
-          <h2 id="source-map-title" className="mt-2 text-2xl font-bold tracking-[-0.04em]">Trusted source map</h2>
-          <p className="mt-2 text-sm leading-6 text-[#53627b]">Every locator below was rebuilt from parsed files or a validated timestamped transcription—not from the later analysis model.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">{t("sourceMap.eyebrow")}</p>
+          <h2 id="source-map-title" className="mt-2 text-2xl font-bold tracking-[-0.04em]">{t("sourceMap.title")}</h2>
+          <p className="mt-2 text-sm leading-6 text-[#53627b]">{t("sourceMap.description")}</p>
         </div>
         <span className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ${completedAnalysis ? "bg-[#dcece8] text-[#1f625e]" : "bg-[#f8ebc8] text-[#765511]"}`}>
           {completedAnalysis ? <ShieldCheck className="size-4" /> : <Lock className="size-4" />}
@@ -838,8 +933,8 @@ function SourceMapSummary({
           return (
             <div key={sourceType} className="rounded-2xl border border-[#14213d]/10 bg-[#f7f4ec]/80 p-4">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-bold">{SOURCE_NAMES[sourceType]}</span>
-                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#53627b]">{chunks.length} chunks</span>
+                <span className="text-sm font-bold">{sourceName(sourceType, t)}</span>
+                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#53627b]">{translateUiPlural(locale, chunks.length, { one: "sourceMap.chunkCountOne", other: "sourceMap.chunkCountOther" })}</span>
               </div>
               <p className="mt-4 truncate text-xs text-[#53627b]" title={chunks[0]?.sourceName}>{chunks[0]?.sourceName}</p>
               <p className="mt-1 text-xs font-bold text-[#2f837c]">
@@ -849,7 +944,7 @@ function SourceMapSummary({
           );
         })}
       </div>
-      <p className="mt-4 text-xs text-[#53627b]">{processed.totalCharacters.toLocaleString()} normalized characters · {processed.chunks.length} chunks total</p>
+      <p className="mt-4 text-xs text-[#53627b]">{t("sourceMap.total", { characters: processed.totalCharacters.toLocaleString(locale), chunks: processed.chunks.length })}</p>
     </section>
   );
 }
@@ -860,12 +955,14 @@ function ProviderControls({
   disabled,
   onProviderChange,
   onModelChange,
+  t,
 }: {
   catalog: PublicProviderCatalog;
   target: AnalysisTarget | null;
   disabled: boolean;
   onProviderChange: (provider: PublicProvider) => void;
   onModelChange: (model: string) => void;
+  t: UiTranslator;
 }) {
   const selectedProvider = catalog.providers.find(
     (provider) => provider.id === target?.provider,
@@ -877,11 +974,11 @@ function ProviderControls({
   return (
     <fieldset className="mt-6 rounded-[24px] border border-[#14213d]/10 bg-white/55 p-4 sm:p-5">
       <legend className="px-2 text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">
-        Optional live analysis
+        {t("provider.legend")}
       </legend>
       <div className="grid gap-4 md:grid-cols-2">
         <label className="block text-sm font-bold" htmlFor="analysis-provider">
-          AI provider
+          {t("provider.providerLabel")}
           <select
             id="analysis-provider"
             value={target?.provider ?? ""}
@@ -895,18 +992,18 @@ function ProviderControls({
             className="mt-2 min-h-11 w-full rounded-xl border border-[#14213d]/15 bg-white px-3 text-sm text-[#14213d] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {catalog.providers.length === 0 && (
-              <option value="">No provider configured</option>
+              <option value="">{t("provider.noneConfigured")}</option>
             )}
             {catalog.providers.map((provider) => (
               <option key={provider.id} value={provider.id}>
-                {provider.label}{provider.configured ? "" : " — not configured"}
+                {provider.label}{provider.configured ? "" : ` — ${t("provider.notConfiguredSuffix")}`}
               </option>
             ))}
           </select>
         </label>
 
         <label className="block text-sm font-bold" htmlFor="analysis-model">
-          AI model
+          {t("provider.modelLabel")}
           <select
             id="analysis-model"
             value={target?.model ?? ""}
@@ -914,7 +1011,7 @@ function ProviderControls({
             onChange={(event) => onModelChange(event.currentTarget.value)}
             className="mt-2 min-h-11 w-full rounded-xl border border-[#14213d]/15 bg-white px-3 text-sm text-[#14213d] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {selectedProvider === undefined && <option value="">No model available</option>}
+            {selectedProvider === undefined && <option value="">{t("provider.noModel")}</option>}
             {selectedProvider?.models.map((model) => (
               <option key={model.id} value={model.id}>{model.label}</option>
             ))}
@@ -924,10 +1021,10 @@ function ProviderControls({
 
       <div className="mt-4 flex flex-col gap-2 text-xs leading-5 text-[#53627b] sm:flex-row sm:items-start sm:justify-between">
         <p className="max-w-3xl">
-          {selectedModel?.description ?? selectedProvider?.description ?? "This deployment has no live provider settings."}
+          {selectedModel?.description ?? selectedProvider?.description ?? t("provider.noSettings")}
         </p>
         <span className={`inline-flex w-fit shrink-0 rounded-full px-2.5 py-1 font-bold ${selectedProvider?.configured ? "bg-[#dcece8] text-[#1f625e]" : "bg-[#f8ebc8] text-[#765511]"}`}>
-          {selectedProvider?.configured ? "Server key configured" : "Local source map only"}
+          {selectedProvider?.configured ? t("provider.serverKeyConfigured") : t("provider.localOnly")}
         </span>
       </div>
     </fieldset>
@@ -938,15 +1035,17 @@ function OutputOptions({
   includeAnki,
   disabled,
   onChange,
+  t,
 }: {
   includeAnki: boolean;
   disabled: boolean;
   onChange: (includeAnki: boolean) => void;
+  t: UiTranslator;
 }) {
   return (
     <fieldset className="mt-4 rounded-[24px] border border-[#14213d]/10 bg-[#14213d] p-4 text-white sm:p-5">
       <legend className="px-2 text-xs font-bold uppercase tracking-[0.16em] text-[#b8dcd6]">
-        Study pack outputs
+        {t("outputs.legend")}
       </legend>
       <div className="grid gap-3 md:grid-cols-2">
         <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.06] p-4">
@@ -954,9 +1053,9 @@ function OutputOptions({
             <BookOpen className="size-5" aria-hidden="true" />
           </span>
           <div>
-            <p className="text-sm font-bold">Enhanced notes</p>
+            <p className="text-sm font-bold">{t("outputs.notesTitle")}</p>
             <p className="mt-1 text-xs leading-5 text-white/60">
-              Always rebuild a complete, logically ordered Markdown study guide.
+              {t("outputs.notesDescription")}
             </p>
           </div>
         </div>
@@ -973,15 +1072,15 @@ function OutputOptions({
             <Brain className="size-5" aria-hidden="true" />
           </span>
           <span>
-            <span className="block text-sm font-bold">Create Anki cards</span>
+            <span className="block text-sm font-bold">{t("outputs.ankiTitle")}</span>
             <span className="mt-1 block text-xs leading-5 text-white/60">
-              Generate evidence-grounded Basic cards and an Anki-ready UTF-8 import file.
+              {t("outputs.ankiDescription")}
             </span>
           </span>
         </label>
       </div>
       <p className="mt-3 px-1 text-xs leading-5 text-white/55">
-        Output choices apply to the next analysis. An existing study pack stays available until you run it again or replace a source file.
+        {t("outputs.retention")}
       </p>
     </fieldset>
   );
@@ -991,10 +1090,14 @@ function PipelineErrorPanel({
   error,
   onRetryLive,
   onRetryDemo,
+  t,
+  locale,
 }: {
   error: PipelineErrorState;
   onRetryLive: () => void;
   onRetryDemo: () => void;
+  t: UiTranslator;
+  locale: UiLocale;
 }) {
   const liveFailure = error.kind === "live";
   const demoFailure = error.kind === "demo";
@@ -1005,27 +1108,27 @@ function PipelineErrorPanel({
         <div className="flex items-start gap-4">
           <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#fee4dd] text-[#a83f32]"><AlertTriangle className="size-5" /></span>
           <div>
-            <h2 className="font-bold">{liveFailure ? "Live analysis did not finish." : demoFailure ? "The included demo did not load." : "We could not process those sources."}</h2>
+            <h2 className="font-bold">{liveFailure ? t("error.liveTitle") : demoFailure ? t("error.demoTitle") : t("error.processingTitle")}</h2>
             <p className="mt-2 text-sm leading-6 text-[#53627b]">{error.message}</p>
             <p className="mt-2 text-xs text-[#53627b]">
               {liveFailure
                 ? error.retryable
-                  ? "Your local source map is preserved. Retry, select another configured model, or use the included demo."
-                  : "Your local source map is preserved. Check the provider configuration, select another model, or use the included demo."
+                  ? t("error.liveRetryRecovery")
+                  : t("error.liveConfigRecovery")
                 : demoFailure
-                  ? "Retry the same checked-in sample. No live model request will be made."
-                : "Replace the affected file and retry, or load the included demo."}
+                  ? t("error.demoRecovery")
+                : t("error.replaceAndRetry")}
             </p>
           </div>
         </div>
         {liveFailure && error.retryable && (
           <button type="button" onClick={onRetryLive} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
-            <RotateCcw className="size-4" /> Retry live analysis
+            <RotateCcw className="size-4" /> {t("error.retry")}
           </button>
         )}
         {demoFailure && (
           <button type="button" onClick={onRetryDemo} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
-            <RotateCcw className="size-4" /> Retry included demo
+            <RotateCcw className="size-4" /> {locale === "en" ? "Retry included demo" : t("error.retryDemo")}
           </button>
         )}
       </div>
@@ -1037,10 +1140,12 @@ function SourceMapOnlyPanel({
   provider,
   onTryDemo,
   onAnalyzeLive,
+  t,
 }: {
   provider?: PublicProvider;
   onTryDemo: () => void;
   onAnalyzeLive?: () => void;
+  t: UiTranslator;
 }) {
   return (
     <section className="rounded-[28px] border border-[#daa83c]/35 bg-[#fff9e9] p-6 sm:p-8" role="status">
@@ -1050,24 +1155,22 @@ function SourceMapOnlyPanel({
             <Lock className="size-5" aria-hidden="true" />
           </span>
           <div>
-            <h2 className="text-lg font-bold tracking-[-0.025em]">Your local source map is ready.</h2>
+            <h2 className="text-lg font-bold tracking-[-0.025em]">{t("empty.title")}</h2>
             <p className="mt-2 text-sm leading-6 text-[#53627b]">
-              {provider === undefined
-                ? "No live model provider is configured on this deployment, so no normalized chunks were sent."
-                : provider.configured
-                  ? `Nothing has been sent to ${provider.label} yet. Start live analysis when you are ready to transmit the normalized chunks.`
-                  : `${provider.label} is not configured on this deployment, so no normalized chunks were sent.`} The included demo still provides a complete, evidence-linked result without an API key.
+              {provider?.configured === true
+                ? t("empty.notSent", { provider: provider.label })
+                : t("empty.unconfigured")}
             </p>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {provider?.configured === true && onAnalyzeLive !== undefined && (
             <button type="button" onClick={onAnalyzeLive} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white hover:bg-[#1f625e]">
-              <ScanText className="size-4" /> Analyze current source map with {provider.label}
+              <ScanText className="size-4" /> {t("empty.analyzeCurrent", { provider: provider.label })}
             </button>
           )}
           <button type="button" onClick={onTryDemo} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
-            <Sparkles className="size-4" /> Load included demo
+            <Sparkles className="size-4" /> {t("error.tryDemo")}
           </button>
         </div>
       </div>
@@ -1075,18 +1178,18 @@ function SourceMapOnlyPanel({
   );
 }
 
-function ScorePanel({ result }: { result: AnalysisResult }) {
+function ScorePanel({ result, t }: { result: AnalysisResult; t: UiTranslator }) {
   const { score, counts, total } = result.metrics;
-  const scoreLabel = score >= 80 ? "Strong coverage" : score >= 60 ? "Important gaps found" : "Needs a careful pass";
+  const scoreLabel = score >= 80 ? t("score.strong") : score >= 60 ? t("score.gaps") : t("score.needsPass");
   const originLabel =
     result.origin.kind === "demo"
-      ? "Simulated demo analysis · real evidence"
-      : `Live analysis · ${result.origin.providerLabel} · ${result.origin.model}`;
+      ? t("score.demoOrigin")
+      : t("score.liveOrigin", { provider: result.origin.providerLabel, model: result.origin.model });
   const countItems: readonly { status: AssessmentStatus; label: string; color: string }[] = [
-    { status: "covered", label: "Covered", color: "bg-[#2f837c]" },
-    { status: "partial", label: "Partial", color: "bg-[#daa83c]" },
-    { status: "missing", label: "Missing", color: "bg-[#ef6b5a]" },
-    { status: "contradiction", label: "Contradictions", color: "bg-[#376ab4]" },
+    { status: "covered", label: t("score.covered"), color: "bg-[#2f837c]" },
+    { status: "partial", label: t("score.partial"), color: "bg-[#daa83c]" },
+    { status: "missing", label: t("score.missing"), color: "bg-[#ef6b5a]" },
+    { status: "contradiction", label: t("score.contradictions"), color: "bg-[#376ab4]" },
   ];
 
   return (
@@ -1099,7 +1202,7 @@ function ScorePanel({ result }: { result: AnalysisResult }) {
               <div>
                 <span className="display-face text-7xl leading-none">{score}</span>
                 <span className="ml-1 text-xl text-white/60">%</span>
-                <p className="mt-2 text-xs font-bold uppercase tracking-[0.15em] text-[#b8dcd6]">Coverage score</p>
+                <p className="mt-2 text-xs font-bold uppercase tracking-[0.15em] text-[#b8dcd6]">{t("score.coverage")}</p>
               </div>
             </div>
           </div>
@@ -1113,7 +1216,7 @@ function ScorePanel({ result }: { result: AnalysisResult }) {
               <h2 id="coverage-title" className="mt-3 text-3xl font-bold tracking-[-0.045em] sm:text-4xl">{scoreLabel}</h2>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-white/65">{result.hydrated.summary}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/55">{total} concepts audited</div>
+            <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/55">{t("score.conceptsAudited", { count: total })}</div>
           </div>
           <div className="mt-8 grid grid-cols-2 gap-3 xl:grid-cols-4">
             {countItems.map((item) => (
@@ -1126,28 +1229,28 @@ function ScorePanel({ result }: { result: AnalysisResult }) {
               </div>
             ))}
           </div>
-          <p className="mt-5 flex items-center gap-2 text-xs text-white/45"><Lock className="size-3.5" /> Score calculated in app code: covered + half of partial.</p>
+          <p className="mt-5 flex items-center gap-2 text-xs text-white/45"><Lock className="size-3.5" /> {t("score.explanation")}</p>
         </div>
       </div>
     </section>
   );
 }
 
-function EvidenceChips({ evidence }: { evidence: readonly HydratedEvidence[] }) {
+function EvidenceChips({ evidence, t }: { evidence: readonly HydratedEvidence[]; t: UiTranslator }) {
   return (
     <div className="mt-5 flex flex-wrap gap-2">
       {evidence.slice(0, 3).map((item) => (
         <span key={item.chunkId} className="inline-flex items-center gap-1.5 rounded-full border border-[#14213d]/10 bg-[#f7f4ec] px-2.5 py-1.5 text-[11px] font-bold text-[#53627b]">
           <span className={`size-1.5 rounded-full ${item.chunk.sourceType === "notes" ? "bg-[#376ab4]" : "bg-[#2f837c]"}`} />
-          {SOURCE_NAMES[item.chunk.sourceType]} · {item.chunk.locator}
+          {sourceName(item.chunk.sourceType, t)} · {item.chunk.locator}
         </span>
       ))}
-      {evidence.length > 3 && <span className="px-2 py-1.5 text-[11px] font-bold text-[#53627b]">+{evidence.length - 3} more</span>}
+      {evidence.length > 3 && <span className="px-2 py-1.5 text-[11px] font-bold text-[#53627b]">{t("evidence.more", { count: evidence.length - 3 })}</span>}
     </div>
   );
 }
 
-function IssueCard({ assessment, onOpen }: { assessment: HydratedConceptAssessment; onOpen: () => void }) {
+function IssueCard({ assessment, onOpen, t }: { assessment: HydratedConceptAssessment; onOpen: () => void; t: UiTranslator }) {
   if (assessment.status === "covered") return null;
   const meta = STATUS_META[assessment.status];
   const Icon = meta.icon;
@@ -1155,15 +1258,15 @@ function IssueCard({ assessment, onOpen }: { assessment: HydratedConceptAssessme
     <article className={`animate-rise rounded-[24px] border border-[#14213d]/10 border-l-4 ${meta.accent} bg-white/75 p-5 shadow-[0_12px_35px_rgba(20,33,61,0.055)] sm:p-6`}>
       <div className="flex items-start justify-between gap-4">
         <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] ${meta.pill}`}>
-          <Icon className="size-3.5" aria-hidden="true" /> {meta.label}
+          <Icon className="size-3.5" aria-hidden="true" /> {issueLabel(assessment.status, t)}
         </span>
-        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#53627b]">{assessment.importance}</span>
+        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#53627b]">{assessment.importance === "core" ? t("review.core") : t("review.supporting")}</span>
       </div>
       <h3 className="mt-5 text-xl font-bold tracking-[-0.035em]">{assessment.title}</h3>
       <p className="mt-3 text-sm leading-6 text-[#53627b]">{assessment.explanation}</p>
-      <EvidenceChips evidence={assessment.evidence} />
+      <EvidenceChips evidence={assessment.evidence} t={t} />
       <button type="button" onClick={onOpen} className="mt-6 inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#14213d] px-4 text-sm font-bold text-white transition hover:bg-[#2f837c]">
-        <Eye className="size-4" aria-hidden="true" /> Inspect evidence <ChevronRight className="size-4" aria-hidden="true" />
+        <Eye className="size-4" aria-hidden="true" /> {t("review.inspectEvidence")} <ChevronRight className="size-4" aria-hidden="true" />
       </button>
     </article>
   );
@@ -1172,9 +1275,11 @@ function IssueCard({ assessment, onOpen }: { assessment: HydratedConceptAssessme
 function IssuesPanel({
   result,
   onOpen,
+  t,
 }: {
   result: AnalysisResult;
   onOpen: (assessment: HydratedConceptAssessment) => void;
+  t: UiTranslator;
 }) {
   const [filter, setFilter] = useState<IssueFilter>("all");
   const issues = useMemo(
@@ -1195,11 +1300,11 @@ function IssuesPanel({
     <section aria-labelledby="review-title">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">Review queue</p>
-          <h2 id="review-title" className="mt-2 text-3xl font-bold tracking-[-0.045em] sm:text-4xl">Close the important gaps.</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#53627b]">Core findings rise first. Open a card to compare the claim against fresh source excerpts.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">{t("review.eyebrow")}</p>
+          <h2 id="review-title" className="mt-2 text-3xl font-bold tracking-[-0.045em] sm:text-4xl">{t("review.title")}</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#53627b]">{t("review.description")}</p>
         </div>
-        <div className="flex max-w-full gap-1 overflow-x-auto rounded-2xl border border-[#14213d]/10 bg-white/65 p-1.5" aria-label="Filter review issues" role="group">
+        <div className="flex max-w-full gap-1 overflow-x-auto rounded-2xl border border-[#14213d]/10 bg-white/65 p-1.5" aria-label={t("review.filterAria")} role="group">
           {FILTERS.map((item) => (
             <button
               key={item.value}
@@ -1208,15 +1313,15 @@ function IssuesPanel({
               onClick={() => setFilter(item.value)}
               className={`min-h-9 shrink-0 rounded-xl px-3 text-xs font-bold transition ${filter === item.value ? "bg-[#14213d] text-white" : "text-[#53627b] hover:bg-[#14213d]/5"}`}
             >
-              {item.label}
+              {item.value === "all" ? t("review.all") : item.value === "missing" ? t("review.missing") : item.value === "partial" ? t("review.partial") : t("review.contradictions")}
             </button>
           ))}
         </div>
       </div>
       <div className="mt-7 grid gap-4 lg:grid-cols-2">
-        {visibleIssues.map((assessment) => <IssueCard key={assessment.id} assessment={assessment} onOpen={() => onOpen(assessment)} />)}
+        {visibleIssues.map((assessment) => <IssueCard key={assessment.id} assessment={assessment} onOpen={() => onOpen(assessment)} t={t} />)}
       </div>
-      {visibleIssues.length === 0 && <p className="mt-7 rounded-2xl border border-[#14213d]/10 bg-white/60 p-6 text-sm text-[#53627b]">No findings in this category.</p>}
+      {visibleIssues.length === 0 && <p className="mt-7 rounded-2xl border border-[#14213d]/10 bg-white/60 p-6 text-sm text-[#53627b]">{t("review.none")}</p>}
     </section>
   );
 }
@@ -1227,12 +1332,14 @@ function ExportActions({
   mimeType,
   copyLabel,
   downloadLabel,
+  t,
 }: {
   text: string;
   fileName: string;
   mimeType: string;
   copyLabel: string;
   downloadLabel: string;
+  t: UiTranslator;
 }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 
@@ -1290,7 +1397,7 @@ function ExportActions({
         className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#14213d]/15 bg-white px-4 text-sm font-bold hover:bg-[#f7f4ec]"
       >
         {copyState === "copied" ? <Check className="size-4 text-[#2f837c]" /> : <Clipboard className="size-4" />}
-        {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : copyLabel}
+        {copyState === "copied" ? t("export.copied") : copyState === "error" ? t("export.copyFailed") : copyLabel}
       </button>
       <button
         type="button"
@@ -1300,7 +1407,7 @@ function ExportActions({
         <Download className="size-4" /> {downloadLabel}
       </button>
       <p className="sr-only" aria-live="polite">
-        {copyState === "copied" ? `${copyLabel} copied to clipboard.` : copyState === "error" ? "Could not access the clipboard." : ""}
+        {copyState === "copied" ? t("export.copiedAnnouncement", { label: copyLabel }) : copyState === "error" ? t("export.clipboardUnavailable") : ""}
       </p>
     </div>
   );
@@ -1315,6 +1422,13 @@ const CHANGE_META: Record<
   corrected: { label: "Corrected", className: "bg-[#dfe8f7] text-[#244f8d]" },
   new: { label: "New", className: "bg-[#fee4dd] text-[#a83f32]" },
 };
+
+function changeLabel(changeType: NoteChangeType, t: UiTranslator): string {
+  if (changeType === "preserved") return t("notes.preserved");
+  if (changeType === "expanded") return t("notes.expanded");
+  if (changeType === "corrected") return t("notes.corrected");
+  return t("notes.new");
+}
 
 function renderInlineMarkdown(value: string, keyPrefix: string): ReactNode[] {
   return value
@@ -1385,36 +1499,39 @@ function SafeMarkdownBody({ markdown }: { markdown: string }) {
 function EnhancedNotesPanel({
   result,
   onOpen,
+  t,
 }: {
   result: AnalysisResult;
   onOpen: (section: HydratedEnhancedNoteSection) => void;
+  t: UiTranslator;
 }) {
   return (
     <section className="overflow-hidden rounded-[30px] border border-[#14213d]/10 bg-white/80 shadow-card" aria-labelledby="enhanced-notes-title">
       <div className="flex flex-col gap-5 border-b border-[#14213d]/10 p-6 lg:flex-row lg:items-center lg:justify-between sm:p-8">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">Complete learning guide</p>
-          <h2 id="enhanced-notes-title" className="mt-2 text-3xl font-bold tracking-[-0.045em]">Enhanced notes</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#53627b]">Accurate material is preserved, thin explanations are expanded, missing ideas are added, and contradictions are corrected in a teachable order. Your original file is never overwritten.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">{t("notes.eyebrow")}</p>
+          <h2 id="enhanced-notes-title" className="mt-2 text-3xl font-bold tracking-[-0.045em]">{t("notes.title")}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#53627b]">{t("notes.description")}</p>
         </div>
         <ExportActions
           text={result.enhancedMarkdown}
           fileName="lectureweaver-enhanced-notes.md"
           mimeType="text/markdown;charset=utf-8"
-          copyLabel="Copy full notes"
-          downloadLabel="Export Markdown"
+          copyLabel={t("notes.copy")}
+          downloadLabel={t("notes.export")}
+          t={t}
         />
       </div>
 
       <div className="bg-[#f7f4ec]/75 p-5 sm:p-8">
         <div className="rounded-2xl border border-[#14213d]/10 bg-white p-5 sm:p-6">
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#53627b]">{result.hydrated.enhancedNotes.sections.length} logically ordered sections</p>
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#53627b]">{t("notes.sectionCount", { count: result.hydrated.enhancedNotes.sections.length })}</p>
           <h3 className="mt-2 text-2xl font-bold tracking-[-0.035em]">{result.hydrated.enhancedNotes.title}</h3>
           <div className="mt-3"><SafeMarkdownBody markdown={result.hydrated.enhancedNotes.overview} /></div>
         </div>
 
-        <nav className="mt-5 rounded-2xl border border-[#14213d]/10 bg-[#14213d] p-5 text-white sm:p-6" aria-label="Enhanced notes table of contents">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#b8dcd6]">Table of contents</p>
+        <nav className="mt-5 rounded-2xl border border-[#14213d]/10 bg-[#14213d] p-5 text-white sm:p-6" aria-label={t("notes.contentsAria")}>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#b8dcd6]">{t("notes.contents")}</p>
           <ol className="mt-4 grid gap-2 md:grid-cols-2">
             {result.hydrated.enhancedNotes.sections.map((section, index) => (
               <li key={section.id}>
@@ -1434,15 +1551,15 @@ function EnhancedNotesPanel({
             return (
               <article id={`enhanced-section-${index + 1}`} key={section.id} className="scroll-mt-5 rounded-[24px] border border-[#14213d]/10 bg-white p-5 sm:p-6">
                 <div className="flex items-center justify-between gap-3">
-                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${change.className}`}>{change.label}</span>
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${change.className}`}>{changeLabel(section.changeType, t)}</span>
                   <span className="text-xs font-bold text-[#53627b]">{String(index + 1).padStart(2, "0")}</span>
                 </div>
                 <h3 className="mt-4 text-xl font-bold tracking-[-0.03em]">{section.heading}</h3>
-                <p className="mt-2 text-xs font-bold leading-5 text-[#2f837c]">Learning objective · {section.learningObjective}</p>
+                <p className="mt-2 text-xs font-bold leading-5 text-[#2f837c]">{t("notes.learningObjective")} · {section.learningObjective}</p>
                 <div className="mt-4"><SafeMarkdownBody markdown={section.markdown} /></div>
-                <EvidenceChips evidence={section.evidence} />
+                <EvidenceChips evidence={section.evidence} t={t} />
                 <button type="button" onClick={() => onOpen(section)} className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#14213d]/15 px-4 text-sm font-bold hover:bg-[#f7f4ec]">
-                  <Eye className="size-4" aria-hidden="true" /> Inspect section sources
+                  <Eye className="size-4" aria-hidden="true" /> {t("notes.inspectSources")}
                 </button>
               </article>
             );
@@ -1450,7 +1567,7 @@ function EnhancedNotesPanel({
         </div>
 
         <details className="mt-5 rounded-2xl border border-[#14213d]/10 bg-[#111a30] text-white">
-          <summary className="cursor-pointer px-5 py-4 text-sm font-bold">View generated Markdown</summary>
+          <summary className="cursor-pointer px-5 py-4 text-sm font-bold">{t("notes.viewMarkdown")}</summary>
           <pre className="max-h-[34rem] overflow-auto whitespace-pre-wrap break-words border-t border-white/10 p-5 font-mono text-[13px] leading-6 text-[#e8edf5]">{result.enhancedMarkdown}</pre>
         </details>
       </div>
@@ -1461,9 +1578,11 @@ function EnhancedNotesPanel({
 function AnkiPanel({
   result,
   onOpen,
+  t,
 }: {
   result: AnalysisResult;
   onOpen: (card: HydratedAnkiCard) => void;
+  t: UiTranslator;
 }) {
   const cards = result.hydrated.ankiCards;
 
@@ -1471,8 +1590,8 @@ function AnkiPanel({
     return (
       <section className="rounded-[30px] border border-[#14213d]/10 bg-white/75 p-8 text-center shadow-card" aria-labelledby="anki-title">
         <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-[#eee9dd] text-[#53627b]"><Brain className="size-6" /></span>
-        <h2 id="anki-title" className="mt-4 text-2xl font-bold">Anki cards were not requested.</h2>
-        <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#53627b]">Turn on Create Anki cards before running the analysis to add evidence-grounded Basic cards to the study pack.</p>
+        <h2 id="anki-title" className="mt-4 text-2xl font-bold">{t("anki.notRequestedTitle")}</h2>
+        <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#53627b]">{t("anki.notRequestedDescription")}</p>
       </section>
     );
   }
@@ -1481,16 +1600,17 @@ function AnkiPanel({
     <section className="overflow-hidden rounded-[30px] border border-[#14213d]/10 bg-white/80 shadow-card" aria-labelledby="anki-title">
       <div className="flex flex-col gap-5 border-b border-[#14213d]/10 p-6 lg:flex-row lg:items-center lg:justify-between sm:p-8">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#ef6b5a]">Active recall deck</p>
-          <h2 id="anki-title" className="mt-2 text-3xl font-bold tracking-[-0.045em]">{cards.length} Anki-ready cards</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#53627b]">Import the UTF-8 text file into Anki using a Basic note type. Front, back, tags, and trusted source locators are generated deterministically.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#ef6b5a]">{t("anki.eyebrow")}</p>
+          <h2 id="anki-title" className="mt-2 text-3xl font-bold tracking-[-0.045em]">{t("anki.readyCount", { count: cards.length })}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#53627b]">{t("anki.description")}</p>
         </div>
         <ExportActions
           text={result.ankiImportText}
           fileName="lectureweaver-anki.txt"
           mimeType="text/plain;charset=utf-8"
-          copyLabel="Copy Anki text"
-          downloadLabel="Download Anki .txt"
+          copyLabel={t("anki.copy")}
+          downloadLabel={t("anki.download")}
+          t={t}
         />
       </div>
 
@@ -1498,18 +1618,18 @@ function AnkiPanel({
         {cards.map((card, index) => (
           <article key={card.id} className="rounded-[24px] border border-[#14213d]/10 bg-white p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3">
-              <span className="rounded-full bg-[#14213d] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white">Basic card</span>
+              <span className="rounded-full bg-[#14213d] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white">{t("anki.basicCard")}</span>
               <span className="text-xs font-bold text-[#53627b]">{String(index + 1).padStart(2, "0")}</span>
             </div>
-            <p className="mt-5 text-xs font-bold uppercase tracking-[0.12em] text-[#2f837c]">Front</p>
+            <p className="mt-5 text-xs font-bold uppercase tracking-[0.12em] text-[#2f837c]">{t("anki.front")}</p>
             <h3 className="mt-2 text-lg font-bold leading-7">{card.front}</h3>
             <details className="mt-4 rounded-2xl bg-[#f7f4ec] p-4">
-              <summary className="cursor-pointer text-sm font-bold">Reveal answer</summary>
+              <summary className="cursor-pointer text-sm font-bold">{t("anki.reveal")}</summary>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[#53627b]">{card.back}</p>
             </details>
-            <EvidenceChips evidence={card.evidence} />
+            <EvidenceChips evidence={card.evidence} t={t} />
             <button type="button" onClick={() => onOpen(card)} className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#14213d]/15 px-4 text-sm font-bold hover:bg-[#f7f4ec]">
-              <Eye className="size-4" aria-hidden="true" /> Inspect card source
+              <Eye className="size-4" aria-hidden="true" /> {t("anki.inspectSource")}
             </button>
           </article>
         ))}
@@ -1521,6 +1641,7 @@ function AnkiPanel({
 type GeneratedAudioState = {
   url: string;
   fileName: string;
+  scriptId: string;
   scriptLabel: string;
   voice: AudioVoice;
   format: AudioSpeechFormat;
@@ -1529,9 +1650,11 @@ type GeneratedAudioState = {
 function AudioStudyGuidePanel({
   result,
   audioConfigured,
+  t,
 }: {
   result: AnalysisResult;
   audioConfigured: boolean;
+  t: UiTranslator;
 }) {
   const scripts = useMemo(
     () => buildNarrationScripts(result.hydrated, MAX_SPEECH_INPUT_CHARACTERS),
@@ -1546,6 +1669,22 @@ function AudioStudyGuidePanel({
   const [generated, setGenerated] = useState<GeneratedAudioState | null>(null);
   const speechRequestRef = useRef<AbortController | null>(null);
   const selectedScript = scripts.find((script) => script.id === scriptId);
+  const localizeScriptLabel = (id: string, fallback: string): string => {
+    if (id === "full") return t("audio.fullGuide");
+    const sectionIndex = result.hydrated.enhancedNotes.sections.findIndex(
+      (section) => section.id === id,
+    );
+    const section = result.hydrated.enhancedNotes.sections[sectionIndex];
+    return section === undefined
+      ? fallback
+      : t("audio.sectionLabel", {
+          number: sectionIndex + 1,
+          heading: section.heading,
+        });
+  };
+  const generatedScriptLabel = generated === null
+    ? null
+    : localizeScriptLabel(generated.scriptId, generated.scriptLabel);
 
   useEffect(() => {
     return () => {
@@ -1592,6 +1731,7 @@ function AudioStudyGuidePanel({
       setGenerated({
         url,
         fileName: speech.fileName,
+        scriptId: selectedScript.id,
         scriptLabel: selectedScript.label,
         voice,
         format,
@@ -1602,7 +1742,7 @@ function AudioStudyGuidePanel({
       setAudioError(
         speechError instanceof AudioClientError || speechError instanceof Error
           ? speechError.message
-          : "The audio study guide could not be generated.",
+          : t("audio.failedFallback"),
       );
     } finally {
       if (speechRequestRef.current === controller) {
@@ -1628,30 +1768,30 @@ function AudioStudyGuidePanel({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">
-              Listen anywhere
+              {t("audio.eyebrow")}
             </p>
             <h2 id="audio-guide-title" className="mt-2 text-3xl font-bold tracking-[-0.045em]">
-              Audio study guide
+              {t("audio.title")}
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[#53627b]">
-              Turn the validated enhanced notes into a spoken review. The narration script is derived deterministically from the same evidence-grounded study pack.
+              {t("audio.description")}
             </p>
           </div>
           <span className="inline-flex w-fit items-center gap-2 rounded-full bg-[#f8ebc8] px-3 py-1.5 text-xs font-bold text-[#765511]">
-            <Volume2 className="size-4" aria-hidden="true" /> AI-generated voice
+            <Volume2 className="size-4" aria-hidden="true" /> {t("audio.aiDisclosure")}
           </span>
         </div>
       </div>
 
       <div className="grid gap-5 bg-[#f7f4ec]/75 p-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] sm:p-8">
         <div className="rounded-[24px] border border-[#14213d]/10 bg-white p-5 sm:p-6">
-          <h3 className="text-lg font-bold tracking-[-0.03em]">Choose what to narrate</h3>
+          <h3 className="text-lg font-bold tracking-[-0.03em]">{t("audio.chooseNarration")}</h3>
           <p className="mt-2 text-xs leading-5 text-[#53627b]">
-            The speech request limit is {MAX_SPEECH_INPUT_CHARACTERS.toLocaleString()} characters. Oversized full guides remain intact and are unavailable; choose a section instead.
+            {t("audio.requestLimit", { limit: MAX_SPEECH_INPUT_CHARACTERS.toLocaleString() })}
           </p>
 
           <label htmlFor="audio-script" className="mt-5 block text-sm font-bold">
-            Narration section
+            {t("audio.narrationSection")}
             <select
               id="audio-script"
               value={scriptId}
@@ -1664,7 +1804,7 @@ function AudioStudyGuidePanel({
             >
               {scripts.map((script) => (
                 <option key={script.id} value={script.id} disabled={!script.withinLimit}>
-                  {script.label} · {script.characters.toLocaleString()} chars{script.withinLimit ? "" : " · too long"}
+                  {localizeScriptLabel(script.id, script.label)} · {t("audio.charactersShort", { count: script.characters.toLocaleString() })}{script.withinLimit ? "" : ` · ${t("audio.tooLongShort")}`}
                 </option>
               ))}
             </select>
@@ -1672,7 +1812,7 @@ function AudioStudyGuidePanel({
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label htmlFor="audio-voice" className="block text-sm font-bold">
-              Voice
+            {t("audio.voice")}
               <select
                 id="audio-voice"
                 value={voice}
@@ -1697,7 +1837,7 @@ function AudioStudyGuidePanel({
             </label>
 
             <label htmlFor="audio-format" className="block text-sm font-bold">
-              Format
+              {t("audio.format")}
               <select
                 id="audio-format"
                 value={format}
@@ -1739,21 +1879,21 @@ function AudioStudyGuidePanel({
               <Volume2 className="size-4" aria-hidden="true" />
             )}
             {generating
-              ? "Generating audio…"
+              ? t("audio.generating")
               : !audioConfigured
-                ? "OpenAI audio unavailable"
+                ? t("audio.unavailable")
               : audioError !== null
-                ? "Retry audio generation"
+                ? t("audio.retry")
               : generated === null
-                ? "Generate audio guide"
-                : "Regenerate audio"}
+                ? t("audio.generate")
+                : t("audio.regenerate")}
           </button>
           <p className="mt-3 text-xs leading-5 text-[#53627b]">
-            The selected narration text is sent to OpenAI and uses the deployment owner&apos;s separately billed API account. LectureWeaver does not persist the generated audio or script.
+            {t("audio.transmissionDisclosure")}
           </p>
           {!audioConfigured && (
             <p className="mt-3 rounded-xl bg-[#eee9dd] p-3 text-xs font-bold leading-5 text-[#53627b]">
-              Configure a server-side OpenAI API key to generate speech. The enhanced notes remain available for copy and Markdown export.
+              {t("audio.unconfiguredSpeech")}
             </p>
           )}
         </div>
@@ -1762,10 +1902,10 @@ function AudioStudyGuidePanel({
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#b8dcd6]">
-                Playback
+                {t("audio.playback")}
               </p>
               <h3 className="mt-2 text-xl font-bold">
-                {generated?.scriptLabel ?? "Your review audio will appear here."}
+                {generatedScriptLabel ?? t("audio.placeholder")}
               </h3>
             </div>
             <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-white/10 text-[#f8ebc8]">
@@ -1775,7 +1915,7 @@ function AudioStudyGuidePanel({
 
           {audioError !== null && (
             <div className="mt-5 rounded-2xl border border-[#ef9b8d]/40 bg-[#ef6b5a]/15 p-4 text-sm leading-6" role="alert">
-              <p className="font-bold">Audio generation did not finish.</p>
+              <p className="font-bold">{t("audio.failedTitle")}</p>
               <p className="mt-1 text-white/75">{audioError}</p>
             </div>
           )}
@@ -1785,7 +1925,7 @@ function AudioStudyGuidePanel({
               <div className="max-w-sm">
                 <AudioLines className="mx-auto size-9 text-white/25" aria-hidden="true" />
                 <p className="mt-4 text-sm leading-6 text-white/60">
-                  Select a section, voice, and format, then generate a downloadable study guide.
+                  {t("audio.emptyInstructions")}
                 </p>
               </div>
             </div>
@@ -1793,16 +1933,16 @@ function AudioStudyGuidePanel({
             <div className="mt-6 flex flex-1 flex-col justify-between gap-6">
               <div>
                 <p className="text-xs text-white/60">
-                  {generated.voice} voice · {generated.format.toUpperCase()} · AI-generated speech
+                  {t("audio.generatedMeta", { voice: generated.voice, format: generated.format.toUpperCase() })}
                 </p>
                 <audio
                   className="mt-4 w-full"
                   controls
                   preload="metadata"
                   src={generated.url}
-                  aria-label={`Audio study guide: ${generated.scriptLabel}`}
+                  aria-label={t("audio.playerAria", { label: generatedScriptLabel ?? generated.scriptLabel })}
                 >
-                  Your browser does not support audio playback.
+                  {t("audio.unsupportedPlayback")}
                 </audio>
               </div>
               <button
@@ -1810,12 +1950,12 @@ function AudioStudyGuidePanel({
                 onClick={downloadAudio}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#ef6b5a] px-5 text-sm font-bold text-white transition hover:bg-[#db5849]"
               >
-                <Download className="size-4" aria-hidden="true" /> Download {generated.format.toUpperCase()}
+                <Download className="size-4" aria-hidden="true" /> {t("audio.download")} {generated.format.toUpperCase()}
               </button>
             </div>
           )}
           <p className="mt-5 border-t border-white/10 pt-4 text-[11px] leading-5 text-white/45">
-            Disclosure: this voice is generated by artificial intelligence and is not a human recording.
+            {t("audio.disclosureDetail")}
           </p>
         </div>
       </div>
@@ -1831,6 +1971,7 @@ function StudyWorkspace({
   onOpenAssessment,
   onOpenSection,
   onOpenCard,
+  t,
 }: {
   result: AnalysisResult;
   view: ResultView;
@@ -1839,18 +1980,19 @@ function StudyWorkspace({
   onOpenAssessment: (assessment: HydratedConceptAssessment) => void;
   onOpenSection: (section: HydratedEnhancedNoteSection) => void;
   onOpenCard: (card: HydratedAnkiCard) => void;
+  t: UiTranslator;
 }) {
   const views: readonly { id: ResultView; label: string; icon: LucideIcon }[] = [
-    { id: "notes", label: "Enhanced notes", icon: BookOpen },
-    { id: "audit", label: "Audit trail", icon: ListChecks },
-    { id: "changes", label: "Changes only", icon: ScanText },
-    { id: "anki", label: `Anki cards · ${result.hydrated.ankiCards.length}`, icon: Brain },
-    { id: "audio", label: "Audio guide", icon: Headphones },
+    { id: "notes", label: t("workspace.notesTab"), icon: BookOpen },
+    { id: "audit", label: t("workspace.auditTab"), icon: ListChecks },
+    { id: "changes", label: t("workspace.changesTab"), icon: ScanText },
+    { id: "anki", label: t("workspace.ankiTab", { count: result.hydrated.ankiCards.length }), icon: Brain },
+    { id: "audio", label: t("workspace.audioTab"), icon: Headphones },
   ];
 
   return (
-    <section aria-label="Study pack workspace">
-      <div className="mb-5 flex max-w-full gap-1 overflow-x-auto rounded-2xl border border-[#14213d]/10 bg-white/65 p-1.5" role="group" aria-label="Choose a study pack view">
+    <section aria-label={t("workspace.aria")}>
+      <div className="mb-5 flex max-w-full gap-1 overflow-x-auto rounded-2xl border border-[#14213d]/10 bg-white/65 p-1.5" role="group" aria-label={t("workspace.chooseViewAria")}>
         {views.map((item) => {
           const Icon = item.icon;
           return (
@@ -1870,14 +2012,15 @@ function StudyWorkspace({
       </div>
 
       <div id="study-view-panel" role="region" aria-labelledby={`study-view-${view}`} aria-live="polite">
-        {view === "notes" && <EnhancedNotesPanel result={result} onOpen={onOpenSection} />}
-        {view === "audit" && <IssuesPanel result={result} onOpen={onOpenAssessment} />}
-        {view === "changes" && <PatchPanel markdown={result.markdown} />}
-        {view === "anki" && <AnkiPanel result={result} onOpen={onOpenCard} />}
+        {view === "notes" && <EnhancedNotesPanel result={result} onOpen={onOpenSection} t={t} />}
+        {view === "audit" && <IssuesPanel result={result} onOpen={onOpenAssessment} t={t} />}
+        {view === "changes" && <PatchPanel markdown={result.markdown} t={t} />}
+        {view === "anki" && <AnkiPanel result={result} onOpen={onOpenCard} t={t} />}
         {view === "audio" && (
           <AudioStudyGuidePanel
             result={result}
             audioConfigured={audioConfigured}
+            t={t}
           />
         )}
       </div>
@@ -1885,15 +2028,15 @@ function StudyWorkspace({
   );
 }
 
-function PatchPanel({ markdown }: { markdown: string }) {
+function PatchPanel({ markdown, t }: { markdown: string; t: UiTranslator }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 
   if (markdown.length === 0) {
     return (
       <section className="rounded-[30px] border border-[#14213d]/10 bg-white/80 p-8 text-center shadow-card" aria-labelledby="patch-title">
         <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-[#dcece8] text-[#1f625e]"><CircleCheck className="size-6" aria-hidden="true" /></span>
-        <h2 id="patch-title" className="mt-4 text-2xl font-bold">No changes are needed.</h2>
-        <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#53627b]">The audit found no partial, missing, or contradictory concepts, so there is no changes-only file to export.</p>
+        <h2 id="patch-title" className="mt-4 text-2xl font-bold">{t("changes.emptyTitle")}</h2>
+        <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#53627b]">{t("changes.emptyDescription")}</p>
       </section>
     );
   }
@@ -1960,17 +2103,17 @@ function PatchPanel({ markdown }: { markdown: string }) {
     <section className="overflow-hidden rounded-[30px] border border-[#14213d]/10 bg-white/80 shadow-card" aria-labelledby="patch-title">
       <div className="flex flex-col gap-5 border-b border-[#14213d]/10 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#ef6b5a]">Ready to merge</p>
-          <h2 id="patch-title" className="mt-2 text-3xl font-bold tracking-[-0.045em]">Suggested additions</h2>
-          <p className="mt-2 text-sm text-[#53627b]">Generated deterministically from actionable findings, with evidence locators included.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#ef6b5a]">{t("changes.eyebrow")}</p>
+          <h2 id="patch-title" className="mt-2 text-3xl font-bold tracking-[-0.045em]">{t("changes.title")}</h2>
+          <p className="mt-2 text-sm text-[#53627b]">{t("changes.description")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={copyMarkdown} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#14213d]/15 bg-white px-4 text-sm font-bold hover:bg-[#f7f4ec]">
             {copyState === "copied" ? <Check className="size-4 text-[#2f837c]" /> : <Clipboard className="size-4" />}
-            {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy Markdown"}
+            {copyState === "copied" ? t("export.copied") : copyState === "error" ? t("export.copyFailed") : t("changes.copy")}
           </button>
           <button type="button" onClick={downloadMarkdown} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#ef6b5a] px-4 text-sm font-bold text-white hover:bg-[#db5849]">
-            <Download className="size-4" /> Download .md
+            <Download className="size-4" /> {t("notes.export")}
           </button>
         </div>
       </div>
@@ -1983,7 +2126,7 @@ function PatchPanel({ markdown }: { markdown: string }) {
         </div>
         <pre className="max-h-[34rem] overflow-auto whitespace-pre-wrap break-words font-mono text-[13px] leading-6 text-[#e8edf5]">{markdown}</pre>
       </div>
-      <p className="sr-only" aria-live="polite">{copyState === "copied" ? "Markdown copied to clipboard." : copyState === "error" ? "Could not access the clipboard." : ""}</p>
+      <p className="sr-only" aria-live="polite">{copyState === "copied" ? t("export.copiedAnnouncement", { label: t("changes.copy") }) : copyState === "error" ? t("export.clipboardUnavailable") : ""}</p>
     </section>
   );
 }
@@ -1991,9 +2134,11 @@ function PatchPanel({ markdown }: { markdown: string }) {
 function EvidenceDrawer({
   content,
   onClose,
+  t,
 }: {
   content: EvidenceDrawerContent;
   onClose: () => void;
+  t: UiTranslator;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
@@ -2042,7 +2187,7 @@ function EvidenceDrawer({
             <h2 id="evidence-title" className="mt-2 text-2xl font-bold tracking-[-0.04em]">{content.title}</h2>
             <span className={`mt-3 inline-flex rounded-full px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] ${content.badgeClassName}`}>{content.badge}</span>
           </div>
-          <button ref={closeRef} type="button" onClick={onClose} className="grid size-10 shrink-0 place-items-center rounded-full border border-[#14213d]/10 bg-white hover:bg-[#fee4dd]" aria-label="Close evidence panel">
+          <button ref={closeRef} type="button" onClick={onClose} className="grid size-10 shrink-0 place-items-center rounded-full border border-[#14213d]/10 bg-white hover:bg-[#fee4dd]" aria-label={t("evidence.closeAria")}>
             <X className="size-5" />
           </button>
         </div>
@@ -2051,32 +2196,32 @@ function EvidenceDrawer({
           {content.evidence.map((item) => (
             <article key={item.chunkId} className="rounded-2xl border border-[#14213d]/10 bg-white p-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="rounded-full bg-[#dcece8] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#1f625e]">{SOURCE_NAMES[item.chunk.sourceType]}</span>
+                <span className="rounded-full bg-[#dcece8] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#1f625e]">{sourceName(item.chunk.sourceType, t)}</span>
                 <span className="text-xs font-bold text-[#2f837c]">{item.chunk.locator}</span>
               </div>
               <p className="mt-3 text-xs font-bold text-[#14213d]">{item.chunk.sourceName}</p>
               {item.chunk.headingPath?.length ? <p className="mt-1 text-xs text-[#53627b]">{item.chunk.headingPath.join(" › ")}</p> : null}
               <blockquote className="mt-4 border-l-2 border-[#ef6b5a] pl-4 text-sm leading-6 text-[#37445c]">“{item.chunk.text}”</blockquote>
-              <p className="mt-4 rounded-xl bg-[#f7f4ec] p-3 text-xs leading-5 text-[#53627b]"><strong className="text-[#14213d]">Why it matters:</strong> {item.relevance}</p>
+              <p className="mt-4 rounded-xl bg-[#f7f4ec] p-3 text-xs leading-5 text-[#53627b]"><strong className="text-[#14213d]">{t("evidence.whyItMatters")}</strong> {item.relevance}</p>
             </article>
           ))}
         </div>
         <div className="border-t border-[#14213d]/10 bg-white/65 p-5 sm:px-8">
-          <p className="flex items-start gap-2 text-xs leading-5 text-[#53627b]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#2f837c]" /> Names, locators, headings, and excerpts come from parsed files or validated transcription—not from the later analysis model.</p>
+          <p className="flex items-start gap-2 text-xs leading-5 text-[#53627b]"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#2f837c]" /> {t("evidence.trust")}</p>
         </div>
       </aside>
     </div>
   );
 }
 
-function EmptyPreview() {
+function EmptyPreview({ t }: { t: UiTranslator }) {
   const stages = [
-    { number: "01", title: "Extract", text: "PDF pages and numbered paragraphs" },
-    { number: "02", title: "Analyze", text: "No-key demo or a configured live model" },
-    { number: "03", title: "Build", text: "Enhanced notes, trusted evidence, and study cards" },
+    { number: "01", title: t("how.extractTitle"), text: t("how.extractText") },
+    { number: "02", title: t("how.analyzeTitle"), text: t("how.analyzeText") },
+    { number: "03", title: t("how.buildTitle"), text: t("how.buildText") },
   ];
   return (
-    <section className="rounded-[28px] border border-[#14213d]/10 bg-[#eee9dd]/65 p-6 sm:p-8" aria-label="How the demo works">
+    <section className="rounded-[28px] border border-[#14213d]/10 bg-[#eee9dd]/65 p-6 sm:p-8" aria-label={t("how.aria")}>
       <div className="grid gap-4 md:grid-cols-3">
         {stages.map((stage, index) => (
           <div key={stage.number} className="relative rounded-2xl bg-white/65 p-5">
@@ -2094,19 +2239,23 @@ function EmptyPreview() {
 export function LectureWeaver(
   { providers = EMPTY_PROVIDER_CATALOG }: { providers?: PublicProviderCatalog } = {},
 ) {
+  const [locale, setLocale] = useState<UiLocale>("en");
+  const t = useMemo(() => createUiTranslator(locale), [locale]);
   const [files, setFiles] = useState<Partial<SourceFiles>>({});
   const [processed, setProcessed] = useState<ProcessedSources | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [mode, setMode] = useState<PipelineMode>("idle");
   const [loadingKind, setLoadingKind] = useState<LoadingKind>("local");
-  const [loadingMessage, setLoadingMessage] = useState("Checking file safety…");
+  const [loadingMessage, setLoadingMessage] = useState<LoadingMessage>({
+    key: "pipeline.checkingSafety",
+  });
   const [error, setError] = useState<PipelineErrorState | null>(null);
   const [target, setTarget] = useState<AnalysisTarget | null>(() =>
     defaultTarget(providers),
   );
   const [includeAnki, setIncludeAnki] = useState(true);
   const [resultView, setResultView] = useState<ResultView>("notes");
-  const [evidenceContent, setEvidenceContent] = useState<EvidenceDrawerContent | null>(null);
+  const [evidenceSelection, setEvidenceSelection] = useState<EvidenceDrawerSelection | null>(null);
   const [inputKey, setInputKey] = useState(0);
   const [spokenSourceMode, setSpokenSourceMode] = useState<SpokenSourceMode>("transcript");
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -2140,6 +2289,51 @@ export function LectureWeaver(
     () => ({ ankiCards: includeAnki }),
     [includeAnki],
   );
+  const evidenceContent = useMemo<EvidenceDrawerContent | null>(() => {
+    if (evidenceSelection === null) return null;
+
+    if (evidenceSelection.kind === "assessment") {
+      const { assessment } = evidenceSelection;
+      const status = assessment.status === "covered"
+        ? { label: t("score.covered"), pill: "bg-[#dcece8] text-[#1f625e]" }
+        : { ...STATUS_META[assessment.status], label: issueLabel(assessment.status, t) };
+      return {
+        title: assessment.title,
+        eyebrow: t("evidence.auditEyebrow"),
+        badge: status.label,
+        badgeClassName: status.pill,
+        description: assessment.explanation,
+        evidence: assessment.evidence,
+      };
+    }
+
+    if (evidenceSelection.kind === "section") {
+      const { section } = evidenceSelection;
+      const change = CHANGE_META[section.changeType];
+      return {
+        title: section.heading,
+        eyebrow: t("evidence.notesEyebrow"),
+        badge: changeLabel(section.changeType, t),
+        badgeClassName: change.className,
+        description: `${section.learningObjective}\n\n${section.markdown}`,
+        evidence: section.evidence,
+      };
+    }
+
+    const { card } = evidenceSelection;
+    return {
+      title: card.front,
+      eyebrow: t("evidence.ankiEyebrow"),
+      badge: t("anki.basicCard"),
+      badgeClassName: "bg-[#14213d] text-white",
+      description: card.back,
+      evidence: card.evidence,
+    };
+  }, [evidenceSelection, t]);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   useEffect(() => {
     return () => {
@@ -2163,7 +2357,7 @@ export function LectureWeaver(
     setResult(null);
     setMode("idle");
     setError(null);
-    setEvidenceContent(null);
+    setEvidenceSelection(null);
     setResultView("notes");
   };
 
@@ -2178,7 +2372,7 @@ export function LectureWeaver(
     setResult(null);
     setMode("idle");
     setError(null);
-    setEvidenceContent(null);
+    setEvidenceSelection(null);
     setResultView("notes");
   };
 
@@ -2192,7 +2386,7 @@ export function LectureWeaver(
     setResult(null);
     setMode("idle");
     setError(null);
-    setEvidenceContent(null);
+    setEvidenceSelection(null);
     setResultView("notes");
     setTranscriptionState({ status: "validating" });
     try {
@@ -2223,7 +2417,7 @@ export function LectureWeaver(
     setResult(null);
     setMode("idle");
     setError(null);
-    setEvidenceContent(null);
+    setEvidenceSelection(null);
     setResultView("notes");
     try {
       const transcription = await requestAudioTranscription(audioFile, {
@@ -2281,7 +2475,10 @@ export function LectureWeaver(
     providerLabel: string,
   ) => {
     setLoadingKind("live");
-    setLoadingMessage(`Analyzing normalized chunks with ${providerLabel} · ${nextTarget.model}…`);
+    setLoadingMessage({
+      key: "pipeline.analyzing",
+      values: { provider: providerLabel, model: nextTarget.model },
+    });
     await nextPaint();
 
     try {
@@ -2328,21 +2525,23 @@ export function LectureWeaver(
     setError(null);
     setResult(null);
     setProcessed(null);
-    setEvidenceContent(null);
+    setEvidenceSelection(null);
     setResultView("notes");
-    setLoadingMessage(
-      spokenSourceMode === "audio"
-        ? "Validating slides, notes, and timestamped transcript…"
-        : "Validating three local files…",
-    );
+    setLoadingMessage({
+      key:
+        spokenSourceMode === "audio"
+          ? "pipeline.validatingAudioSources"
+          : "pipeline.validatingTextSources",
+    });
     await nextPaint();
 
     try {
-      setLoadingMessage(
-        spokenSourceMode === "audio"
-          ? "Extracting pages and hydrating validated transcription timestamps…"
-          : "Extracting pages and paragraph structure…",
-      );
+      setLoadingMessage({
+        key:
+          spokenSourceMode === "audio"
+            ? "pipeline.extractingAudioSources"
+            : "pipeline.extractingTextSources",
+      });
       let nextProcessed: ProcessedSources;
       if (
         spokenSourceMode === "audio" &&
@@ -2366,7 +2565,7 @@ export function LectureWeaver(
       if (canAnalyzeLive && nextTarget !== null && provider !== undefined) {
         await analyzeProcessedSources(nextProcessed, nextTarget, provider.label);
       } else {
-        setLoadingMessage("Finalizing the local source map…");
+        setLoadingMessage({ key: "pipeline.finalizingSourceMap" });
         await nextPaint();
         setMode("source-map");
         revealOutput();
@@ -2386,9 +2585,9 @@ export function LectureWeaver(
     setError(null);
     setResult(null);
     setProcessed(null);
-    setEvidenceContent(null);
+    setEvidenceSelection(null);
     setResultView("notes");
-    setLoadingMessage("Loading the included sample files…");
+    setLoadingMessage({ key: "pipeline.loadingDemo" });
     await nextPaint();
     try {
       const demoFiles = await loadDemoFiles();
@@ -2397,10 +2596,10 @@ export function LectureWeaver(
       audioSelectionRef.current = null;
       setTranscriptionState({ status: "idle" });
       setFiles(demoFiles);
-      setLoadingMessage("Extracting pages and paragraph structure…");
+      setLoadingMessage({ key: "pipeline.extractingTextSources" });
       const nextProcessed = await processSourceFiles(demoFiles);
       setProcessed(nextProcessed);
-      setLoadingMessage("Verifying the sample fingerprint and hydrating evidence…");
+      setLoadingMessage({ key: "pipeline.verifyingDemo" });
       await nextPaint();
       const demoResult = await runFixtureAnalysis(nextProcessed, outputOptions);
       setResult(demoResult);
@@ -2428,7 +2627,7 @@ export function LectureWeaver(
     setMode("loading");
     setError(null);
     setResult(null);
-    setEvidenceContent(null);
+    setEvidenceSelection(null);
     await analyzeProcessedSources(processed, target, selectedProvider.label);
   };
 
@@ -2454,44 +2653,19 @@ export function LectureWeaver(
 
   const chooseAnkiOutput = (nextValue: boolean) => {
     setIncludeAnki(nextValue);
-    setEvidenceContent(null);
+    setEvidenceSelection(null);
   };
 
   const openAssessmentEvidence = (assessment: HydratedConceptAssessment) => {
-    const status = assessment.status === "covered"
-      ? { label: "Covered", pill: "bg-[#dcece8] text-[#1f625e]" }
-      : STATUS_META[assessment.status];
-    setEvidenceContent({
-      title: assessment.title,
-      eyebrow: "Audit evidence",
-      badge: status.label,
-      badgeClassName: status.pill,
-      description: assessment.explanation,
-      evidence: assessment.evidence,
-    });
+    setEvidenceSelection({ kind: "assessment", assessment });
   };
 
   const openSectionEvidence = (section: HydratedEnhancedNoteSection) => {
-    const change = CHANGE_META[section.changeType];
-    setEvidenceContent({
-      title: section.heading,
-      eyebrow: "Enhanced-note sources",
-      badge: change.label,
-      badgeClassName: change.className,
-      description: `${section.learningObjective}\n\n${section.markdown}`,
-      evidence: section.evidence,
-    });
+    setEvidenceSelection({ kind: "section", section });
   };
 
   const openCardEvidence = (card: HydratedAnkiCard) => {
-    setEvidenceContent({
-      title: card.front,
-      eyebrow: "Anki card source",
-      badge: "Basic card",
-      badgeClassName: "bg-[#14213d] text-white",
-      description: card.back,
-      evidence: card.evidence,
-    });
+    setEvidenceSelection({ kind: "card", card });
   };
 
   const reset = () => {
@@ -2506,7 +2680,7 @@ export function LectureWeaver(
     setResult(null);
     setMode("idle");
     setError(null);
-    setEvidenceContent(null);
+    setEvidenceSelection(null);
     setResultView("notes");
     setInputKey((value) => value + 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2514,19 +2688,25 @@ export function LectureWeaver(
 
   return (
     <main>
-      <AppHeader onTryDemo={() => void tryDemo()} loading={busy} />
-      <Hero onTryDemo={() => void tryDemo()} loading={busy} />
+      <AppHeader
+        onTryDemo={() => void tryDemo()}
+        loading={busy}
+        locale={locale}
+        onLocaleChange={setLocale}
+        t={t}
+      />
+      <Hero onTryDemo={() => void tryDemo()} loading={busy} t={t} />
 
       <section className="mx-auto max-w-[1440px] px-5 py-16 sm:px-8 sm:py-20 lg:px-12" aria-labelledby="upload-title">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">Your materials</p>
-            <h2 id="upload-title" className="mt-2 text-3xl font-bold tracking-[-0.045em] sm:text-4xl">Build a trusted source map.</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#53627b]">Choose PDF slides, Markdown notes, and either a transcript TXT file or a lecture recording. Text files are parsed in this tab; audio is sent only after you explicitly request transcription.</p>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#2f837c]">{t("upload.eyebrow")}</p>
+            <h2 id="upload-title" className="mt-2 text-3xl font-bold tracking-[-0.045em] sm:text-4xl">{t("upload.title")}</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#53627b]">{t("upload.description")}</p>
           </div>
           {(Object.keys(files).length > 0 || audioFile !== null || processed) && (
             <button type="button" onClick={reset} disabled={busy} className="inline-flex min-h-10 w-fit items-center gap-2 rounded-xl border border-[#14213d]/15 bg-white/60 px-4 text-sm font-bold hover:bg-white disabled:opacity-50">
-              <RotateCcw className="size-4" /> Reset
+              <RotateCcw className="size-4" /> {t("app.reset")}
             </button>
           )}
         </div>
@@ -2547,6 +2727,8 @@ export function LectureWeaver(
                 onTranscriptSelect={(file) => updateFile("transcript", file)}
                 onAudioSelect={chooseAudioFile}
                 onTranscribe={() => void transcribeAudio()}
+                t={t}
+                locale={locale}
               />
             ) : (
               <FileCard
@@ -2556,6 +2738,8 @@ export function LectureWeaver(
                 inputKey={inputKey}
                 disabled={busy}
                 onSelect={updateFile}
+                t={t}
+                locale={locale}
               />
             ),
           )}
@@ -2567,16 +2751,20 @@ export function LectureWeaver(
           disabled={busy}
           onProviderChange={chooseProvider}
           onModelChange={chooseModel}
+          t={t}
         />
+
+        <ApiSetupGuide locale={locale} className="mt-4" />
 
         <OutputOptions
           includeAnki={includeAnki}
           disabled={busy}
           onChange={chooseAnkiOutput}
+          t={t}
         />
 
         <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-[#14213d]/10 bg-white/50 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="flex items-center gap-2 text-xs leading-5 text-[#53627b]"><Lock className="size-4 shrink-0 text-[#2f837c]" /> PDF, TXT, and Markdown stay local · audio is sent to OpenAI only for explicit transcription · normalized chunks are sent only for configured live analysis · no silent truncation</p>
+          <p className="flex items-center gap-2 text-xs leading-5 text-[#53627b]"><Lock className="size-4 shrink-0 text-[#2f837c]" /> {t("upload.privacy")}</p>
           <div className="flex flex-wrap justify-end gap-2">
             <button
               type="button"
@@ -2585,7 +2773,7 @@ export function LectureWeaver(
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#14213d]/15 bg-white px-5 text-sm font-bold text-[#14213d] transition hover:bg-[#f7f4ec] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading && loadingKind === "local" ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
-              Build local source map
+              {t("upload.buildLocal")}
             </button>
             {selectedProvider?.configured === true && target !== null && (
               <button
@@ -2595,7 +2783,7 @@ export function LectureWeaver(
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white transition hover:bg-[#1f625e] disabled:cursor-not-allowed disabled:bg-[#14213d]/20"
               >
                 {loading && loadingKind === "live" ? <LoaderCircle className="size-4 animate-spin" /> : <ScanText className="size-4" />}
-                Extract and analyze with {selectedProvider.label}
+                {t("upload.analyzeWith", { provider: selectedProvider.label })}
               </button>
             )}
           </div>
@@ -2604,15 +2792,23 @@ export function LectureWeaver(
 
       <div ref={outputRef} tabIndex={-1} className="scroll-mt-5 outline-none">
         <div className="mx-auto max-w-[1440px] space-y-8 px-5 pb-20 sm:px-8 lg:px-12">
-          {mode === "loading" && <LoadingPanel message={loadingMessage} kind={loadingKind} />}
+          {mode === "loading" && (
+            <LoadingPanel
+              message={t(loadingMessage.key, loadingMessage.values)}
+              kind={loadingKind}
+              t={t}
+            />
+          )}
           {mode === "error" && error && (
             <PipelineErrorPanel
               error={error}
               onRetryLive={() => void retryLiveAnalysis()}
               onRetryDemo={() => void tryDemo()}
+              t={t}
+              locale={locale}
             />
           )}
-          {processed && mode !== "loading" && <SourceMapSummary processed={processed} origin={result?.origin ?? null} />}
+          {processed && mode !== "loading" && <SourceMapSummary processed={processed} origin={result?.origin ?? null} locale={locale} t={t} />}
           {mode === "source-map" && (
             <SourceMapOnlyPanel
               provider={selectedProvider}
@@ -2622,13 +2818,14 @@ export function LectureWeaver(
                   ? () => void retryLiveAnalysis()
                   : undefined
               }
+              t={t}
             />
           )}
-          {mode === "idle" && <EmptyPreview />}
+          {mode === "idle" && <EmptyPreview t={t} />}
 
           {result && mode === "ready" && (
             <div className="space-y-18 animate-rise">
-              <ScorePanel result={result} />
+              <ScorePanel result={result} t={t} />
               <StudyWorkspace
                 result={result}
                 view={resultView}
@@ -2637,6 +2834,7 @@ export function LectureWeaver(
                 onOpenAssessment={openAssessmentEvidence}
                 onOpenSection={openSectionEvidence}
                 onOpenCard={openCardEvidence}
+                t={t}
               />
             </div>
           )}
@@ -2645,12 +2843,12 @@ export function LectureWeaver(
 
       <footer className="border-t border-[#14213d]/10 bg-[#eee9dd]/70">
         <div className="mx-auto flex max-w-[1440px] flex-col gap-5 px-5 py-8 text-xs text-[#53627b] sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-12">
-          <div className="flex items-center gap-3"><LogoMark /><span><strong className="text-[#14213d]">LectureWeaver</strong><br />Evidence-grounded study pack</span></div>
-          <p className="max-w-xl leading-5 sm:text-right">Try demo remains fixture-only and needs no API key. Optional server-side AI can transcribe an uploaded recording, rebuild notes, create Anki cards, and generate a disclosed AI-voice study guide.</p>
+          <div className="flex items-center gap-3"><LogoMark /><span><strong className="text-[#14213d]">LectureWeaver</strong><br />{t("app.footerTagline")}</span></div>
+          <p className="max-w-xl leading-5 sm:text-right">{t("app.footerPrivacy")}</p>
         </div>
       </footer>
 
-      {evidenceContent && <EvidenceDrawer content={evidenceContent} onClose={() => setEvidenceContent(null)} />}
+      {evidenceContent && <EvidenceDrawer content={evidenceContent} onClose={() => setEvidenceSelection(null)} t={t} />}
     </main>
   );
 }

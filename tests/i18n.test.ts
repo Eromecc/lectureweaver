@@ -1,0 +1,82 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  createUiTranslator,
+  DEFAULT_UI_LOCALE,
+  resolveUiLocale,
+  translateUi,
+  translateUiPlural,
+  UI_LOCALE_OPTIONS,
+  UI_LOCALES,
+  UI_MESSAGE_CATALOGS,
+} from "@/lib/i18n/ui";
+
+describe("static UI localization", () => {
+  it("keeps every supported locale complete and nonblank", () => {
+    const englishKeys = Object.keys(UI_MESSAGE_CATALOGS.en).sort();
+
+    expect(UI_LOCALES).toEqual(["en", "zh-CN"]);
+    expect(UI_LOCALE_OPTIONS.map((option) => option.value)).toEqual(UI_LOCALES);
+
+    for (const locale of UI_LOCALES) {
+      expect(Object.keys(UI_MESSAGE_CATALOGS[locale]).sort()).toEqual(
+        englishKeys,
+      );
+      expect(
+        Object.values(UI_MESSAGE_CATALOGS[locale]).every(
+          (message) => message.trim().length > 0,
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("resolves browser locale variants and falls back to English", () => {
+    expect(resolveUiLocale("zh-CN")).toBe("zh-CN");
+    expect(resolveUiLocale("zh_Hans_CN")).toBe("zh-CN");
+    expect(resolveUiLocale("en-GB")).toBe("en");
+    expect(resolveUiLocale("fr-FR")).toBe(DEFAULT_UI_LOCALE);
+    expect(resolveUiLocale(undefined)).toBe(DEFAULT_UI_LOCALE);
+    expect(translateUi("unsupported", "hero.sampleCta")).toBe(
+      "Try the sample lecture",
+    );
+  });
+
+  it("interpolates named scalar values without interpreting their contents", () => {
+    expect(
+      translateUi("zh-CN", "upload.analyzeWith", {
+        provider: "OpenAI <script>",
+      }),
+    ).toBe("提取并使用 OpenAI <script> 分析");
+    expect(translateUi("en", "upload.analyzeWith")).toBe(
+      "Extract and analyze with {provider}",
+    );
+    expect(
+      translateUi("en", "pipeline.analyzing", {
+        provider: "OpenAI",
+        model: "gpt-5.6",
+        ignored: "not rendered",
+      }),
+    ).toBe("Analyzing normalized chunks with OpenAI · gpt-5.6…");
+  });
+
+  it("uses locale-aware singular and plural message selection", () => {
+    const forms = {
+      one: "spoken.segmentCountOne",
+      other: "spoken.segmentCountOther",
+    } as const;
+
+    expect(translateUiPlural("en", 1, forms)).toBe("1 segment");
+    expect(translateUiPlural("en", 2, forms)).toBe("2 segments");
+    expect(translateUiPlural("zh-CN", 1, forms)).toBe("1 个片段");
+    expect(translateUiPlural("zh-CN", 8, forms)).toBe("8 个片段");
+  });
+
+  it("creates a locale-bound typed translator", () => {
+    const t = createUiTranslator("zh-CN");
+
+    expect(t("provider.keyGuidanceTitle")).toBe("API 密钥应填在哪里？");
+    expect(t("workspace.ankiTab", { count: 12 })).toBe(
+      "Anki 卡片 · 12",
+    );
+  });
+});
