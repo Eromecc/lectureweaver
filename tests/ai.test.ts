@@ -29,6 +29,7 @@ import {
   parseModelAnalysisWire,
   type ModelAnalysisWire,
 } from "@/lib/ai/wire";
+import { ANALYSIS_PROVIDER_TIMEOUT_MS } from "@/lib/ai/timeouts";
 
 import { buildTestAnalysis, toWireAnalysis } from "./analysis-fixtures";
 
@@ -692,7 +693,7 @@ describe("DeepSeek and Kimi Chat Completions adapters", () => {
       retryable: true,
     });
 
-    await vi.advanceTimersByTimeAsync(55_000);
+    await vi.advanceTimersByTimeAsync(ANALYSIS_PROVIDER_TIMEOUT_MS);
     await assertion;
     await expect(pending).rejects.not.toHaveProperty(
       "message",

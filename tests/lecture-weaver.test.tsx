@@ -1310,6 +1310,55 @@ describe("LectureWeaver client workflow", () => {
     expect(mockRunFixtureAnalysis).not.toHaveBeenCalled();
   });
 
+  it("sets expectations while a live provider is processing a large source map", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    const pendingAnalysis = deferred<AnalysisResult>();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis.mockReturnValue(pendingAnalysis.promise);
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    await user.upload(
+      screen.getByLabelText("Choose lecture PDF file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Extract and analyze with DeepSeek",
+      }),
+    );
+
+    const waitHint = await screen.findByText(
+      "Large source maps can take up to about 3 minutes. Keep this tab open while the selected provider finishes.",
+    );
+    expect(waitHint.closest("section")).toHaveAttribute("aria-busy", "true");
+
+    await user.click(
+      screen.getByRole("button", { name: "Language: 简体中文" }),
+    );
+    expect(
+      screen.getByText(
+        "较大的来源地图可能需要约 3 分钟。请保持当前标签页打开，等待所选服务商完成。",
+      ),
+    ).toBeVisible();
+
+    await act(async () => {
+      pendingAnalysis.resolve(liveResult);
+      await pendingAnalysis.promise;
+    });
+    expect(
+      await screen.findByRole("heading", { name: "需要仔细复查" }),
+    ).toBeVisible();
+  });
+
   it("honors the optional Anki switch in the live request and result workspace", async () => {
     const user = userEvent.setup();
     const selectedFiles = sourceFiles();
@@ -1429,6 +1478,63 @@ describe("LectureWeaver client workflow", () => {
       await screen.findByRole("heading", { name: "Needs a careful pass" }),
     ).toBeVisible();
     expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(2);
+    expect(mockProcessSourceFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows timeout-specific recovery and retries the preserved map with lighter outputs", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis
+      .mockRejectedValueOnce(
+        new LiveAnalysisError(
+          "provider_timeout",
+          "DeepSeek did not finish within the analysis time limit.",
+          true,
+        ),
+      )
+      .mockResolvedValueOnce(noAnkiLiveResult);
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    await user.upload(
+      screen.getByLabelText("Choose lecture PDF file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Extract and analyze with DeepSeek",
+      }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Retry once. If it times out again, choose DeepSeek V4 Flash, turn off optional Anki cards, or select another credential-ready provider.",
+    );
+    expect(screen.getByText("Local source map ready")).toBeVisible();
+
+    await user.click(
+      screen.getByRole("checkbox", { name: /Create Anki cards/ }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Retry live analysis" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Needs a careful pass" }),
+    ).toBeVisible();
+    expect(mockRequestLiveAnalysis).toHaveBeenLastCalledWith(
+      processed,
+      { provider: "deepseek", model: "deepseek-v4-pro" },
+      { ankiCards: false },
+    );
     expect(mockProcessSourceFiles).toHaveBeenCalledTimes(1);
   });
 

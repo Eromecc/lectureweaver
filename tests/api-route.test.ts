@@ -6,7 +6,11 @@ import {
   type AnalyzeRequest,
   type SourceChunk,
 } from "@/domain";
-import { POST } from "@/app/api/analyze/route";
+import { maxDuration, POST } from "@/app/api/analyze/route";
+import {
+  ANALYSIS_CLIENT_TIMEOUT_MS,
+  ANALYSIS_PROVIDER_TIMEOUT_MS,
+} from "@/lib/ai/timeouts";
 import type { ModelAnalysisWire } from "@/lib/ai/wire";
 
 import { buildTestAnalysis, toWireAnalysis } from "./analysis-fixtures";
@@ -102,6 +106,16 @@ afterEach(() => {
 });
 
 describe("POST /api/analyze", () => {
+  it("allows the provider timeout to complete before the route deadline", () => {
+    expect(ANALYSIS_PROVIDER_TIMEOUT_MS).toBe(150_000);
+    expect(ANALYSIS_CLIENT_TIMEOUT_MS).toBe(170_000);
+    expect(ANALYSIS_PROVIDER_TIMEOUT_MS).toBeLessThan(
+      ANALYSIS_CLIENT_TIMEOUT_MS,
+    );
+    expect(ANALYSIS_CLIENT_TIMEOUT_MS).toBeLessThan(maxDuration * 1_000);
+    expect(maxDuration).toBe(180);
+  });
+
   it("rejects non-JSON content types", async () => {
     const response = await POST(
       new Request("http://localhost/api/analyze", {

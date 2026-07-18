@@ -99,6 +99,8 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 - UI and docs must state that a temporary key is visible to the user's browser/device and extensions, crosses the LectureWeaver/Vercel function, and is forwarded only to the selected allowlisted provider. Say “not persisted by LectureWeaver,” not “never leaves the browser” or “guaranteed erased.”
 - ChatGPT/Codex subscription entitlements are not OpenAI Platform API credits. Do not use Codex login tokens or ChatGPT cookies as application credentials.
 - Apply bounded request size, provider timeout, and model-output limits. Treat empty, refused, filtered, truncated, malformed, oversized, or semantically invalid provider output as an error.
+- Keep the live-analysis timeout layers ordered: abort the upstream provider request at 150 seconds, bound the browser request at 170 seconds, and cap the application function at 180 seconds. Do not reuse these values for transcription or speech, which keep their own audio-specific limits.
+- Never automatically retry a timed-out live provider request. Because the first attempt may already have consumed provider credits, preserve the source map and require an explicit user retry or provider/model change before issuing another request.
 - Map expected failures to the stable API error envelope without leaking provider response bodies, keys, prompts, or internal stack traces.
 - Preserve the local source map when a provider is absent or fails.
 - Do not add authentication, a database, persistence, analytics, or logging of source content as part of this milestone.
@@ -176,7 +178,7 @@ Add focused regression coverage for behavior changes:
 - sample ingestion, fingerprint mismatch, provider-unconfigured behavior, and accessible UI interactions;
 - OpenAI structured parse/refusal/length/error mapping;
 - DeepSeek JSON parsing, empty/length/error cases, and Kimi strict-schema request/response handling;
-- timeout, authentication, balance, rate-limit, and invalid-output failures with mocked network responses;
+- provider, browser, and function timeout boundaries (150/170/180 seconds), browser abort behavior, timer cleanup, authentication, balance, rate-limit, and invalid-output failures with mocked network responses;
 - speech model/voice and MP3/WAV allowlists, the 4,096-character narration limit, audio response headers, playback/download state, retry, timeout, and invalid/empty audio failures.
 
 Tests use synthetic data. Avoid snapshots that conceal meaningful domain changes. Never call a paid provider from the test suite.

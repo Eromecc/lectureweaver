@@ -109,5 +109,13 @@ describe("static UI localization", () => {
     expect(createUiTranslator("ko")("workspace.audioTab")).toBe(
       "오디오 가이드",
     );
+    for (const locale of UI_LOCALES) {
+      expect(
+        createUiTranslator(locale)("error.liveTimeoutRecovery"),
+      ).toContain("DeepSeek V4 Flash");
+      expect(
+        createUiTranslator(locale)("pipeline.liveWaitHint"),
+      ).toMatch(/3/);
+    }
   });
 });

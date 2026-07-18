@@ -14,12 +14,12 @@ import {
 } from "./errors";
 import { buildAnalysisInput, buildAnalysisInstructions } from "./prompt";
 import { getProviderLabel } from "./providers";
+import { ANALYSIS_PROVIDER_TIMEOUT_MS } from "./timeouts";
 import {
   ModelAnalysisWireSchema,
   parseModelAnalysisText,
 } from "./wire";
 
-const PROVIDER_TIMEOUT_MS = 55_000;
 const MAX_PROVIDER_RESPONSE_BYTES = 250_000;
 const MAX_PROVIDER_ERROR_BYTES = 32_000;
 const MAX_MODEL_OUTPUT_TOKENS = 12_000;
@@ -190,7 +190,10 @@ export async function analyzeWithChatCompletions({
 }: ChatAnalysisOptions): Promise<ModelAnalysis> {
   const providerLabel = getProviderLabel(provider);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    ANALYSIS_PROVIDER_TIMEOUT_MS,
+  );
 
   try {
     const response = await fetchImpl(`${baseUrl}/chat/completions`, {

@@ -214,6 +214,8 @@ const ENGLISH_UI_MESSAGES = {
   "pipeline.hydrateEvidence": "Hydrate evidence",
   "pipeline.checkingSafety": "Checking file safety…",
   "pipeline.analyzing": "Analyzing normalized chunks with {provider} · {model}…",
+  "pipeline.liveWaitHint":
+    "Large source maps can take up to about 3 minutes. Keep this tab open while the selected provider finishes.",
   "pipeline.validatingAudioSources":
     "Validating the lecture source, notes, and timestamped transcript…",
   "pipeline.validatingTextSources": "Validating the three local sources…",
@@ -253,6 +255,8 @@ const ENGLISH_UI_MESSAGES = {
     "Retry the same checked-in sample. No live model request will be made.",
   "error.liveRetryRecovery":
     "Your local source map is preserved. Retry, select another ready model, or use the included demo.",
+  "error.liveTimeoutRecovery":
+    "Your local source map is preserved. Retry once. If it times out again, choose DeepSeek V4 Flash, turn off optional Anki cards, or select another credential-ready provider.",
   "error.liveConfigRecovery":
     "Your local source map is preserved. Check the temporary or deployment credential, select another model, or use the included demo.",
 
@@ -602,6 +606,8 @@ const SIMPLIFIED_CHINESE_UI_MESSAGES = {
   "pipeline.hydrateEvidence": "关联可信证据",
   "pipeline.checkingSafety": "正在检查文件安全性…",
   "pipeline.analyzing": "正在使用 {provider} · {model} 分析规范化文本块…",
+  "pipeline.liveWaitHint":
+    "较大的来源地图可能需要约 3 分钟。请保持当前标签页打开，等待所选服务商完成。",
   "pipeline.validatingAudioSources": "正在验证讲义来源、笔记和带时间戳的讲稿…",
   "pipeline.validatingTextSources": "正在验证三个本地来源…",
   "pipeline.extractingAudioSources": "正在提取讲义结构并关联已验证的转写时间戳…",
@@ -634,6 +640,8 @@ const SIMPLIFIED_CHINESE_UI_MESSAGES = {
   "error.demoRecovery": "请对同一套内置样例重试；不会发起实时模型请求。",
   "error.liveRetryRecovery":
     "本地来源地图已保留。请重试、选择其他已就绪模型，或使用内置演示。",
+  "error.liveTimeoutRecovery":
+    "本地来源地图已保留。请先重试一次；若再次超时，可选择 DeepSeek V4 Flash、关闭可选 Anki 卡片，或改用其他已配置有效密钥的服务商。",
   "error.liveConfigRecovery":
     "本地来源地图已保留。请检查临时密钥或部署密钥、选择其他模型，或使用内置演示。",
 
@@ -968,6 +976,8 @@ const JAPANESE_UI_MESSAGES = {
   "pipeline.hydrateEvidence": "根拠を関連付け",
   "pipeline.checkingSafety": "ファイルの安全性を確認中…",
   "pipeline.analyzing": "{provider} · {model} で正規化済みチャンクを分析中…",
+  "pipeline.liveWaitHint":
+    "大きなソースマップでは約 3 分かかる場合があります。選択したプロバイダーが完了するまで、このタブを開いたままにしてください。",
   "pipeline.validatingAudioSources": "講義資料、ノート、タイムスタンプ付き文字起こしを検証中…",
   "pipeline.validatingTextSources": "3 つのローカル資料を検証中…",
   "pipeline.extractingAudioSources": "講義構造を抽出し、検証済み文字起こしのタイムスタンプを関連付け中…",
@@ -1000,6 +1010,8 @@ const JAPANESE_UI_MESSAGES = {
   "error.demoRecovery": "同じ内蔵サンプルで再試行してください。ライブモデルへのリクエストは行われません。",
   "error.liveRetryRecovery":
     "ローカルソースマップは保持されています。再試行するか、別の利用可能なモデルまたは内蔵デモを選択してください。",
+  "error.liveTimeoutRecovery":
+    "ローカルソースマップは保持されています。まず一度再試行し、再度タイムアウトする場合は DeepSeek V4 Flash を選ぶか、任意の Anki カードをオフにするか、有効な認証情報がある別のプロバイダーを選んでください。",
   "error.liveConfigRecovery":
     "ローカルソースマップは保持されています。一時キーまたはデプロイキーを確認し、別のモデルまたは内蔵デモを選択してください。",
 
@@ -1334,6 +1346,8 @@ const KOREAN_UI_MESSAGES = {
   "pipeline.hydrateEvidence": "근거 연결",
   "pipeline.checkingSafety": "파일 안전성 확인 중…",
   "pipeline.analyzing": "{provider} · {model}(으)로 정규화 청크 분석 중…",
+  "pipeline.liveWaitHint":
+    "큰 소스 맵은 약 3분까지 걸릴 수 있습니다. 선택한 제공업체가 완료할 때까지 이 탭을 열어 두세요.",
   "pipeline.validatingAudioSources": "강의 자료, 노트, 타임스탬프 전사문 검증 중…",
   "pipeline.validatingTextSources": "로컬 자료 3개 검증 중…",
   "pipeline.extractingAudioSources": "강의 구조를 추출하고 검증된 전사 타임스탬프 연결 중…",
@@ -1366,6 +1380,8 @@ const KOREAN_UI_MESSAGES = {
   "error.demoRecovery": "동일한 내장 샘플로 다시 시도하세요. 라이브 모델 요청은 전송되지 않습니다.",
   "error.liveRetryRecovery":
     "로컬 소스 맵은 유지됩니다. 다시 시도하거나 다른 준비된 모델 또는 내장 데모를 선택하세요.",
+  "error.liveTimeoutRecovery":
+    "로컬 소스 맵은 유지됩니다. 먼저 한 번 다시 시도하고, 다시 시간 초과가 발생하면 DeepSeek V4 Flash를 선택하거나 선택 사항인 Anki 카드를 끄거나 유효한 인증 정보가 있는 다른 제공업체를 선택하세요.",
   "error.liveConfigRecovery":
     "로컬 소스 맵은 유지됩니다. 임시 키 또는 배포 키를 확인하고 다른 모델 또는 내장 데모를 선택하세요.",
 

@@ -13,7 +13,7 @@ import {
 import { analyzeWithSelectedProvider } from "@/lib/ai/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 const MAX_REQUEST_BODY_BYTES = 1_000_000;
 

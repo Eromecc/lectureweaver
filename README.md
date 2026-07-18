@@ -65,6 +65,8 @@ Uploaded TXT and directly pasted text are parsed locally through the same UTF-8 
 
 **Build local source map** never calls a provider. **Extract and analyze with …** is the explicit transmission action for the selected ready provider; an existing map can instead use **Analyze current source map with …** without re-extraction.
 
+Live analysis has three ordered timeout ceilings: the upstream provider request is bounded at 150 seconds, the browser request at 170 seconds, and the Vercel function at 180 seconds. The gaps leave time to cancel upstream work and return a validated error before the outer layer expires. A timeout keeps the local source map available, so the user can retry the same map or choose another ready provider without parsing the files again. LectureWeaver never retries a paid model request automatically because an interrupted request may still have consumed provider resources; every retry is a deliberate user action and may incur a new charge.
+
 ChatGPT and Codex subscriptions do **not** fund analysis, transcription, or speech calls. OpenAI Platform API usage and the other providers' API usage require separate provider credentials and billing. Do not copy Codex login tokens or ChatGPT session credentials into this app, and never send an API key to another person in chat.
 
 ## Data flow and trust boundary
@@ -95,6 +97,7 @@ ChatGPT and Codex subscriptions do **not** fund analysis, transcription, or spee
 - LectureWeaver calculates the score, counts, ordering, evidence hydration, Markdown assembly, Anki tags, and Anki import text in application code. Providers do not control those values.
 - `POST /api/speech` accepts JSON containing no more than 4,096 narration characters, uses a server-allowlisted voice, and returns MP3 or WAV. Speech is generated only from the validated enhanced-note study guide. Users can play or download the generated result, which is clearly disclosed as an AI-generated voice.
 - Each paid request declares either deployment or temporary credential mode. If a temporary credential header is missing/invalid, the server rejects the request instead of silently charging a deployment key. A header supplied in deployment mode is also rejected.
+- Live-analysis timeouts are bounded independently at the provider (150 seconds), browser (170 seconds), and function (180 seconds) layers. Timeout recovery preserves the validated source map and is manual; the application does not silently repeat a potentially billable request.
 - The app has no authentication, database, saved history, analytics, or server persistence. Temporary keys, audio bytes, transcripts, and generated speech are not written to application logs or storage.
 
 ## Provider contracts

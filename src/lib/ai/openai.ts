@@ -13,12 +13,12 @@ import {
   providerHttpError,
 } from "./errors";
 import { buildAnalysisInput, buildAnalysisInstructions } from "./prompt";
+import { ANALYSIS_PROVIDER_TIMEOUT_MS } from "./timeouts";
 import {
   ModelAnalysisWireSchema,
   parseModelAnalysisWire,
 } from "./wire";
 
-const PROVIDER_TIMEOUT_MS = 55_000;
 const MAX_MODEL_OUTPUT_TOKENS = 12_000;
 
 export type OpenAIInvocation = {
@@ -101,7 +101,7 @@ export const invokeOpenAIResponses: OpenAIInvoker = async ({
   const client = new OpenAI({
     apiKey,
     maxRetries: 0,
-    timeout: PROVIDER_TIMEOUT_MS,
+    timeout: ANALYSIS_PROVIDER_TIMEOUT_MS,
   });
 
   const response = await client.responses.parse({

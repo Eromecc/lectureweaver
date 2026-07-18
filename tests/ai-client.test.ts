@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { type ModelAnalysis, type SourceChunk } from "@/domain";
 import {
   LiveAnalysisError,
   requestLiveAnalysis,
 } from "@/lib/ai/client";
+import { ANALYSIS_CLIENT_TIMEOUT_MS } from "@/lib/ai/timeouts";
 import type { ProcessedSources } from "@/lib/extraction";
 
 import { buildTestAnalysis } from "./analysis-fixtures";
@@ -52,6 +53,11 @@ const analysis: ModelAnalysis = buildTestAnalysis([
     ],
   },
 ]);
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("live analysis browser client credentials", () => {
   it("sends a temporary key only in its same-origin header", async () => {
@@ -128,5 +134,95 @@ describe("live analysis browser client credentials", () => {
     );
 
     expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("aborts a stalled browser request at the client deadline and clears its timer", async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | undefined;
+    const fetchImpl = vi.fn<typeof fetch>(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          capturedSignal = init?.signal ?? undefined;
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+
+    const pending = requestLiveAnalysis(
+      processed,
+      { provider: "deepseek", model: "deepseek-v4-flash" },
+      { ankiCards: false },
+      { fetchImpl, sessionApiKey: "temporary-deepseek-key-123456" },
+    );
+    const assertion = expect(pending).rejects.toMatchObject({
+      code: "provider_timeout",
+      retryable: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(ANALYSIS_CLIENT_TIMEOUT_MS - 1);
+    expect(capturedSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await assertion;
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("maps an unreadable 504 response to a retryable provider timeout", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      new Response("upstream gateway timeout", { status: 504 }),
+    );
+
+    await expect(
+      requestLiveAnalysis(
+        processed,
+        { provider: "deepseek", model: "deepseek-v4-flash" },
+        { ankiCards: false },
+        { fetchImpl, sessionApiKey: "temporary-deepseek-key-123456" },
+      ),
+    ).rejects.toMatchObject({
+      code: "provider_timeout",
+      retryable: true,
+    });
+  });
+
+  it("maps a malformed JSON 504 response to a retryable provider timeout", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      Response.json({ message: "gateway timeout" }, { status: 504 }),
+    );
+
+    await expect(
+      requestLiveAnalysis(
+        processed,
+        { provider: "deepseek", model: "deepseek-v4-flash" },
+        { ankiCards: false },
+        { fetchImpl, sessionApiKey: "temporary-deepseek-key-123456" },
+      ),
+    ).rejects.toMatchObject({
+      code: "provider_timeout",
+      retryable: true,
+    });
+  });
+
+  it("clears the browser deadline after a successful response", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        provider: "openai",
+        model: "gpt-5.6",
+        analysis,
+      }),
+    );
+
+    await requestLiveAnalysis(
+      processed,
+      { provider: "openai", model: "gpt-5.6" },
+      { ankiCards: false },
+      { fetchImpl },
+    );
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

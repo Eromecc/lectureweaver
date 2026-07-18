@@ -32,6 +32,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import type {
+  AnalyzeErrorCode,
   AnalysisOutputOptions,
   AnalysisTarget,
   AssessmentStatus,
@@ -122,6 +123,7 @@ type PipelineErrorState = {
   kind: "processing" | "live" | "demo";
   message: string;
   retryable: boolean;
+  liveCode?: AnalyzeErrorCode;
   sourceType?: SourceType;
   processingCode?: ProcessingErrorCode;
 };
@@ -309,6 +311,7 @@ function liveError(error: unknown): PipelineErrorState {
         : "The selected model did not return a usable analysis.",
     retryable:
       error instanceof LiveAnalysisError ? error.retryable : true,
+    ...(error instanceof LiveAnalysisError ? { liveCode: error.code } : {}),
   };
 }
 
@@ -1268,6 +1271,11 @@ function LoadingPanel({ message, kind, t }: { message: string; kind: LoadingKind
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#b8dcd6]">{eyebrow}</p>
             <p className="mt-1 text-lg font-bold">{message}</p>
+            {kind === "live" && (
+              <p className="mt-2 max-w-2xl text-xs leading-5 text-white/60">
+                {t("pipeline.liveWaitHint")}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1665,6 +1673,7 @@ function PipelineErrorPanel({
   locale: UiLocale;
 }) {
   const liveFailure = error.kind === "live";
+  const liveTimeout = liveFailure && error.liveCode === "provider_timeout";
   const demoFailure = error.kind === "demo";
   const lectureSourceFailure =
     allowLectureTextRecovery &&
@@ -1683,7 +1692,9 @@ function PipelineErrorPanel({
             <p className="mt-2 text-sm leading-6 text-[#53627b]">{error.message}</p>
             <p className="mt-2 text-xs text-[#53627b]">
               {liveFailure
-                ? error.retryable
+                ? liveTimeout
+                  ? t("error.liveTimeoutRecovery")
+                  : error.retryable
                   ? t("error.liveRetryRecovery")
                   : t("error.liveConfigRecovery")
                 : demoFailure
