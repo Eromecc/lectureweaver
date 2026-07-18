@@ -1,0 +1,131 @@
+--- LectureWeaver demo page 1 ---
+EDUCATION / SYNTHETIC DEMO
+Evidence-Based
+Study Strategies
+A practical learning-science lecture about durable recall,
+useful effort, and honest evidence of mastery.
+RECALL SCHEDULE CORRECT
+Learning goal
+Choose study actions that still work when the page is closed.
+LECTUREWEAVER SYNTHETIC DEMO OPENING 01 / 08
+
+--- LectureWeaver demo page 2 ---
+STRATEGY 01
+Retrieval beats passive review
+LECTUREWEAVER SYNTHETIC DEMO RETRIEVAL PRACTICE 02 / 08
+Close the material. Pull the answer from memory. Then check.
+WHY IT WORKS
+Strengthens access to knowledge
+and exposes gaps that
+familiarity can hide.
+WHAT COUNTS
+Low-stakes quizzes, blank-page
+recall, flashcards, and
+explaining without slides.
+WHAT DOES NOT
+Viewing the answer immediately
+and recognizing it is not
+retrieval practice.
+LEARN > RETRIEVE > CHECK > RESTUDY THE GAP
+
+--- LectureWeaver demo page 3 ---
+STRATEGY 02
+Space practice, then schedule it
+LECTUREWEAVER SYNTHETIC DEMO SPACING + SCHEDULES 03 / 08
+Spacing distributes practice across separate sessions. A practice schedule turns that
+principle into a repeatable plan.
+DAY 0
+Learn
+DAY 1
+Retrieve
+DAY 3
+Retrieve
+DAY 7
+Mix
+DAY 14
+Cumulative
+SPACING EFFECT
+Some forgetting makes the next successful
+retrieval effortful and useful.
+ADAPT THE INTERVAL
+After a failure, return sooner. After easy recall,
+lengthen the interval.
+
+--- LectureWeaver demo page 4 ---
+DESIGN PRINCIPLE
+Difficulty is useful only when it teaches
+LECTUREWEAVER SYNTHETIC DEMO DESIRABLE DIFFICULTIES 04 / 08
+DESIRABLE DIFFICULTY Harder now, better retention or transfer later.
+PRODUCTIVE FRICTION
+Generation before explanation
+Spaced retrieval and varied examples
+Achievable effort with correction
+MERELY DIFFICULT
+Confusing or ambiguous instructions
+A task beyond current prerequisites
+Effort with no useful feedback
+
+--- LectureWeaver demo page 5 ---
+STRATEGY 03
+Interleaving works by contrast
+LECTUREWEAVER SYNTHETIC DEMO INTERLEAVING 05 / 08
+BLOCKED A A A B B B C C C INTERLEAVED A B C A C B B A C
+THE MECHANISM: DISCRIMINATION
+Notice features > Identify the problem > Choose a strategy
+Interleaving can lower immediate accuracy while improving later strategy selection and transfer. Smooth
+blocked practice may be misleading.
+
+--- LectureWeaver demo page 6 ---
+CORRECTION LOOP
+Feedback timing closes the loop
+LECTUREWEAVER SYNTHETIC DEMO FEEDBACK 06 / 08
+Give feedback after a genuine attempt, but soon enough to correct the mental model before an
+error becomes stable.
+1 ATTEMPT 2 FEEDBACK 3 CORRECTION 4 RETRY
+USE SOONER
+Novices, factual errors, and misconceptions that
+could persist.
+A BRIEF DELAY CAN HELP
+Complex judgments where reflection is useful -
+never leave errors uncorrected.
+
+--- LectureWeaver demo page 7 ---
+REALITY CHECK
+Fluency is not mastery
+LECTUREWEAVER SYNTHETIC DEMO REREADING 07 / 08
+FEELS EASY
+Recognition
+The page looks familiar. Each pass is
+faster. Highlighted sentences feel known.
+Rereading alone: low utility
+BUILDS DURABLE ACCESS
+Retrieval
+The material is closed. You produce the
+idea, check it, and repair a specific gap.
+Practice testing: stronger evidence
+Use rereading for orientation or targeted restudy - not as proof that learning happened.
+
+--- LectureWeaver demo page 8 ---
+PUT IT TOGETHER
+A weekly system for durable learning
+LECTUREWEAVER SYNTHETIC DEMO PRACTICE PLAN 08 / 08
+MON
+Learn + retrieve
+Close the slides and explain the core idea.
+TUE
+Short return
+Retrieve again; shorten intervals after misses.
+THU
+Interleave
+Mix related choices and name why each fits.
+SUN
+Cumulative check
+Quiz old and new material, then correct gaps.
+THE CHECK
+Can I still
+retrieve the idea
+and choose when to
+use it with the
+page closed?
+EVIDENCE, NOT EASE
+Retrieve. Space. Discriminate. Correct.

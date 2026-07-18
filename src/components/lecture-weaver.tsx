@@ -72,6 +72,7 @@ import {
 } from "@/lib/ai/audio-client";
 import {
   loadDemoFiles,
+  recoverDemoPdfExtraction,
   runFixtureAnalysis,
 } from "@/lib/demo";
 import {
@@ -3473,7 +3474,6 @@ export function LectureWeaver(
     await nextPaint();
     try {
       const demoFiles = await loadDemoFiles();
-      setLectureSourceMode("pdf");
       setPastedLecture("");
       lecturePasteValidationVersionRef.current += 1;
       setPastedLectureState({ status: "idle" });
@@ -3485,9 +3485,23 @@ export function LectureWeaver(
       setAudioFile(null);
       audioSelectionRef.current = null;
       setTranscriptionState({ status: "idle" });
-      setFiles(demoFiles);
       setLoadingMessage({ key: "pipeline.extractingTextSources" });
-      const nextProcessed = await processSourceFiles(demoFiles);
+      let nextFiles = demoFiles;
+      let nextProcessed: ProcessedSources;
+      try {
+        nextProcessed = await processSourceFiles(demoFiles);
+      } catch (extractionError: unknown) {
+        const recovered = await recoverDemoPdfExtraction(
+          extractionError,
+          demoFiles,
+        );
+        nextFiles = recovered.files;
+        nextProcessed = recovered.processed;
+      }
+      setLectureSourceMode(
+        nextFiles.slides.name.toLowerCase().endsWith(".pdf") ? "pdf" : "text",
+      );
+      setFiles(nextFiles);
       setProcessed(nextProcessed);
       setLoadingMessage({ key: "pipeline.verifyingDemo" });
       await nextPaint();

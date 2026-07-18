@@ -69,12 +69,20 @@ export async function extractPdfPages(file: File): Promise<PdfPageText[]> {
           const content = await page.getTextContent();
           pages.push({ pageNumber, text: textItemsToLines(content.items) });
         } finally {
-          page.cleanup();
+          try {
+            page.cleanup();
+          } catch {
+            // Cleanup must not hide a successfully extracted page.
+          }
         }
       }
       return pages;
     } finally {
-      await loadingTask.destroy();
+      try {
+        await loadingTask.destroy();
+      } catch {
+        // Cleanup must not turn successfully extracted pages into a PDF failure.
+      }
     }
   } catch (error: unknown) {
     if (error instanceof SourceProcessingError) throw error;

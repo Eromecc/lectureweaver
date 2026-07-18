@@ -18,6 +18,7 @@ import {
 import type { DemoAnalysisResult } from "@/lib/demo";
 import {
   loadDemoFiles,
+  recoverDemoPdfExtraction,
   runFixtureAnalysis,
 } from "@/lib/demo";
 import {
@@ -66,6 +67,7 @@ vi.mock("@/lib/demo", async () => {
   return {
     ...actual,
     loadDemoFiles: vi.fn(),
+    recoverDemoPdfExtraction: vi.fn(),
     runFixtureAnalysis: vi.fn(),
   };
 });
@@ -342,6 +344,7 @@ const kimiLiveResult: AnalysisResult = {
 };
 
 const mockLoadDemoFiles = vi.mocked(loadDemoFiles);
+const mockRecoverDemoPdfExtraction = vi.mocked(recoverDemoPdfExtraction);
 const mockProcessSourceFiles = vi.mocked(processSourceFiles);
 const mockRunFixtureAnalysis = vi.mocked(runFixtureAnalysis);
 const mockRequestLiveAnalysis = vi.mocked(requestLiveAnalysis);
@@ -1548,6 +1551,56 @@ describe("LectureWeaver client workflow", () => {
       await screen.findByRole("heading", { name: "Needs a careful pass" }),
     ).toBeVisible();
     expect(mockLoadDemoFiles).toHaveBeenCalledTimes(2);
+    expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("recovers the included demo from a browser PDF worker failure without a live request", async () => {
+    const user = userEvent.setup();
+    const files = sourceFiles();
+    const fallbackFiles: SourceFiles = {
+      ...files,
+      slides: new File(["Page-aligned sample text"], "lecture-pages.txt", {
+        type: "text/plain",
+      }),
+    };
+    const fallbackProcessed: ProcessedSources = {
+      ...processed,
+      chunks: processed.chunks.map((chunk) =>
+        chunk.sourceType === "slides"
+          ? { ...chunk, sourceName: "lecture-pages.txt" }
+          : chunk,
+      ),
+    };
+    const extractionError = new SourceProcessingError(
+      "invalid_pdf",
+      "slides",
+      "The PDF worker could not start.",
+    );
+    mockLoadDemoFiles.mockResolvedValue(files);
+    mockProcessSourceFiles.mockRejectedValue(extractionError);
+    mockRecoverDemoPdfExtraction.mockResolvedValue({
+      files: fallbackFiles,
+      processed: fallbackProcessed,
+    });
+    mockRunFixtureAnalysis.mockResolvedValue(result);
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    await user.click(
+      screen.getByRole("button", { name: "Try the sample lecture" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Needs a careful pass" }),
+    ).toBeVisible();
+    expect(screen.getAllByText("lecture-pages.txt").length).toBeGreaterThan(0);
+    expect(mockRecoverDemoPdfExtraction).toHaveBeenCalledWith(
+      extractionError,
+      files,
+    );
+    expect(mockRunFixtureAnalysis).toHaveBeenCalledWith(
+      fallbackProcessed,
+      { ankiCards: true },
+    );
     expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
   });
 

@@ -1,11 +1,16 @@
 export {
   DemoAssetLoadError,
   loadDemoFiles,
+  parseDemoLecturePages,
   parseDemoFixture,
   processDemoFiles,
+  recoverDemoPdfExtraction,
   runFixtureAnalysis,
 } from "./pipeline.client";
-export type { DemoAnalysisResult } from "./pipeline.client";
+export type {
+  DemoAnalysisResult,
+  DemoPdfRecovery,
+} from "./pipeline.client";
 
 export { fingerprintSourceChunks } from "./fingerprint";
 export type { DemoFingerprints } from "./fingerprint";

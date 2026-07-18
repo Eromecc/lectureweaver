@@ -8,7 +8,18 @@ import {
   type AnalysisResult,
 } from "@/lib/analysis";
 import {
+  assertExtractedTextLimit,
+  assertProcessedSources,
+  chunkMarkdownNotes,
+  chunkPdfPages,
+  chunkTranscript,
+  normalizeSourceText,
   processSourceFiles,
+  readLectureTextFile,
+  readNotesFile,
+  readTranscriptFile,
+  SourceProcessingError,
+  type PdfPageText,
   type ProcessedSources,
   type SourceFiles,
 } from "@/lib/extraction";
@@ -50,6 +61,15 @@ const DEMO_ASSETS = [
     mimeType: "text/markdown",
   },
 ] as const satisfies readonly DemoAsset[];
+
+const DEMO_PAGE_TEXT_ASSET = {
+  sourceType: "slides",
+  path: "/demo/lecture-pages.txt",
+  name: "lecture-pages.txt",
+  mimeType: "text/plain",
+} as const satisfies DemoAsset;
+
+const DEMO_PAGE_MARKER = /^--- LectureWeaver demo page ([1-9]\d*) ---$/gm;
 
 const DEMO_SOURCE_TYPES = ["slides", "transcript", "notes"] as const;
 
@@ -94,6 +114,78 @@ export async function loadDemoFiles(): Promise<SourceFiles> {
     loadDemoAsset(DEMO_ASSETS[2]),
   ]);
   return { slides, transcript, notes };
+}
+
+export function parseDemoLecturePages(input: string): PdfPageText[] {
+  const text = input.replace(/\r\n?/g, "\n");
+  const markers = Array.from(text.matchAll(DEMO_PAGE_MARKER));
+  if (markers.length === 0 || text.slice(0, markers[0]?.index ?? 0).trim()) {
+    throw new DemoAssetLoadError(
+      "slides",
+      "The included lecture page-text fallback is malformed.",
+    );
+  }
+
+  return markers.map((marker, index) => {
+    const pageNumber = Number(marker[1]);
+    const expectedPageNumber = index + 1;
+    const contentStart = (marker.index ?? 0) + marker[0].length;
+    const contentEnd = markers[index + 1]?.index ?? text.length;
+    const pageText = normalizeSourceText(text.slice(contentStart, contentEnd));
+    if (pageNumber !== expectedPageNumber || !pageText) {
+      throw new DemoAssetLoadError(
+        "slides",
+        "The included lecture page-text fallback has invalid page ordering or content.",
+      );
+    }
+    return { pageNumber, text: pageText };
+  });
+}
+
+export type DemoPdfRecovery = {
+  files: SourceFiles;
+  processed: ProcessedSources;
+};
+
+/**
+ * Keeps Try demo available when a supported browser cannot start PDF.js's
+ * module worker. This recovery is deliberately scoped to the checked-in sample;
+ * arbitrary uploads still fail through the normal extraction pipeline.
+ */
+export async function recoverDemoPdfExtraction(
+  error: unknown,
+  files: SourceFiles,
+): Promise<DemoPdfRecovery> {
+  if (
+    !(error instanceof SourceProcessingError) ||
+    error.sourceType !== "slides" ||
+    (error.code !== "invalid_pdf" && error.code !== "empty_source")
+  ) {
+    throw error;
+  }
+
+  const fallbackFile = await loadDemoAsset(DEMO_PAGE_TEXT_ASSET);
+  const [fallbackText, transcript, notes] = await Promise.all([
+    readLectureTextFile(fallbackFile),
+    readTranscriptFile(files.transcript),
+    readNotesFile(files.notes),
+  ]);
+  const pages = parseDemoLecturePages(fallbackText);
+  assertExtractedTextLimit([
+    ...pages.map((page) => page.text),
+    transcript,
+    notes,
+  ]);
+  const processed = assertProcessedSources([
+    ...chunkPdfPages(pages, fallbackFile.name),
+    ...chunkTranscript(transcript, files.transcript.name),
+    ...chunkMarkdownNotes(notes, files.notes.name),
+  ]);
+
+  return {
+    files: { ...files, slides: fallbackFile },
+    processed,
+  };
 }
 
 export function parseDemoFixture(input: unknown = fixtureJson) {
@@ -144,6 +236,12 @@ export async function processDemoFiles(): Promise<{
   processed: ProcessedSources;
   analysis: DemoAnalysisResult;
 }> {
-  const processed = await processSourceFiles(await loadDemoFiles());
+  const files = await loadDemoFiles();
+  let processed: ProcessedSources;
+  try {
+    processed = await processSourceFiles(files);
+  } catch (error: unknown) {
+    processed = (await recoverDemoPdfExtraction(error, files)).processed;
+  }
   return { processed, analysis: await runFixtureAnalysis(processed) };
 }

@@ -90,4 +90,39 @@ describe("browser PDF extraction", () => {
     expect(pdfJsMocks.cleanup).toHaveBeenCalledOnce();
     expect(pdfJsMocks.destroy).toHaveBeenCalledOnce();
   });
+
+  it("does not discard extracted text when PDF.js cleanup fails", async () => {
+    pdfJsMocks.cleanup.mockImplementationOnce(() => {
+      throw new Error("page cleanup failed");
+    });
+    pdfJsMocks.destroy.mockRejectedValueOnce(new Error("worker teardown failed"));
+    pdfJsMocks.getDocument.mockReturnValue({
+      destroy: pdfJsMocks.destroy,
+      promise: Promise.resolve({
+        numPages: 1,
+        getPage: vi.fn(async () => ({
+          cleanup: pdfJsMocks.cleanup,
+          getTextContent: vi.fn(async () => ({
+            items: [
+              {
+                str: "Extracted before cleanup",
+                hasEOL: true,
+                transform: [1, 0, 0, 1, 0, 10],
+              },
+            ],
+          })),
+        })),
+      }),
+    });
+
+    await expect(
+      extractPdfPages(
+        new File(["%PDF-compatible"], "lecture.pdf", {
+          type: "application/pdf",
+        }),
+      ),
+    ).resolves.toEqual([
+      { pageNumber: 1, text: "Extracted before cleanup" },
+    ]);
+  });
 });

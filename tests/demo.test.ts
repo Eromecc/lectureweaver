@@ -10,8 +10,10 @@ import {
   DemoFingerprintMismatchError,
   fingerprintSourceChunks,
   loadDemoFiles,
+  parseDemoLecturePages,
   parseDemoFixture,
   parseDemoManifest,
+  recoverDemoPdfExtraction,
   runFixtureAnalysis,
 } from "@/lib/demo";
 import {
@@ -20,8 +22,10 @@ import {
   chunkPdfPages,
   chunkTranscript,
   normalizeSourceText,
+  SourceProcessingError,
   type PdfPageText,
   type ProcessedSources,
+  type SourceFiles,
 } from "@/lib/extraction";
 
 const EXPECTED_FINGERPRINTS = {
@@ -264,6 +268,75 @@ describe("checked-in demo contract", () => {
     expect(reorderedFingerprints.transcript).toBe(EXPECTED_FINGERPRINTS.transcript);
     expect(reorderedFingerprints.notes).toBe(EXPECTED_FINGERPRINTS.notes);
   });
+
+  it("keeps the page-aligned text fallback bound to the PDF fingerprint", async () => {
+    const [pageText, transcript, notes] = await Promise.all([
+      readFile("public/demo/lecture-pages.txt", "utf8"),
+      readFile("public/demo/transcript.txt", "utf8"),
+      readFile("public/demo/notes.md", "utf8"),
+    ]);
+    const fallbackCorpus = assertProcessedSources([
+      ...chunkPdfPages(parseDemoLecturePages(pageText), "lecture-pages.txt"),
+      ...chunkTranscript(transcript, "transcript.txt"),
+      ...chunkMarkdownNotes(notes, "notes.md"),
+    ]);
+
+    expect(fallbackCorpus.counts).toEqual({ slides: 8, transcript: 3, notes: 8 });
+    await expect(fingerprintSourceChunks(fallbackCorpus.chunks)).resolves.toEqual(
+      EXPECTED_FINGERPRINTS,
+    );
+    const result = await runFixtureAnalysis(fallbackCorpus);
+    expect(result.metrics.score).toBe(64);
+    expect(
+      result.hydrated.assessments.find(
+        (assessment) => assessment.id === "concept-retrieval-practice",
+      )?.evidence[0]?.chunk,
+    ).toMatchObject({
+      sourceName: "lecture-pages.txt",
+      locator: "Page 2",
+    });
+  });
+
+  it("rejects malformed or out-of-order fallback pages", () => {
+    expect(() => parseDemoLecturePages("No page marker here.")).toThrow(
+      DemoAssetLoadError,
+    );
+    expect(() =>
+      parseDemoLecturePages(
+        "--- LectureWeaver demo page 1 ---\nFirst\n\n--- LectureWeaver demo page 3 ---\nThird",
+      ),
+    ).toThrow(DemoAssetLoadError);
+    expect(() =>
+      parseDemoLecturePages(
+        "Unexpected preamble\n--- LectureWeaver demo page 1 ---\nFirst",
+      ),
+    ).toThrow(DemoAssetLoadError);
+  });
+
+  it("fails closed when the checked-in fallback page text is changed", async () => {
+    const [pageText, transcript, notes] = await Promise.all([
+      readFile("public/demo/lecture-pages.txt", "utf8"),
+      readFile("public/demo/transcript.txt", "utf8"),
+      readFile("public/demo/notes.md", "utf8"),
+    ]);
+    const pages = parseDemoLecturePages(pageText);
+    const firstPage = pages[0];
+    expect(firstPage).toBeDefined();
+    const tamperedPages = pages.map((page, index) =>
+      index === 0 && firstPage !== undefined
+        ? { ...page, text: `${firstPage.text} changed` }
+        : page,
+    );
+    const tampered = assertProcessedSources([
+      ...chunkPdfPages(tamperedPages, "lecture-pages.txt"),
+      ...chunkTranscript(transcript, "transcript.txt"),
+      ...chunkMarkdownNotes(notes, "notes.md"),
+    ]);
+
+    await expect(runFixtureAnalysis(tampered)).rejects.toBeInstanceOf(
+      DemoFingerprintMismatchError,
+    );
+  });
 });
 
 describe("demo asset loading", () => {
@@ -295,5 +368,65 @@ describe("demo asset loading", () => {
   it("surfaces a typed retryable asset error", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 503 })));
     await expect(loadDemoFiles()).rejects.toBeInstanceOf(DemoAssetLoadError);
+  });
+
+  it("recovers only a checked-in PDF extraction failure through the text sidecar", async () => {
+    const [pdf, pageText, transcript, notes] = await Promise.all([
+      readFile("public/demo/lecture.pdf"),
+      readFile("public/demo/lecture-pages.txt", "utf8"),
+      readFile("public/demo/transcript.txt", "utf8"),
+      readFile("public/demo/notes.md", "utf8"),
+    ]);
+    const files: SourceFiles = {
+      slides: new File([pdf], "lecture.pdf", { type: "application/pdf" }),
+      transcript: new File([transcript], "transcript.txt", { type: "text/plain" }),
+      notes: new File([notes], "notes.md", { type: "text/markdown" }),
+    };
+    const fetchMock = vi.fn(async () => new Response(pageText, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const recovered = await recoverDemoPdfExtraction(
+      new SourceProcessingError("invalid_pdf", "slides", "Worker failed."),
+      files,
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith("/demo/lecture-pages.txt", {
+      cache: "no-store",
+    });
+    expect(recovered.files.slides).toMatchObject({
+      name: "lecture-pages.txt",
+      type: "text/plain",
+    });
+    expect(recovered.processed.counts).toEqual({
+      slides: 8,
+      transcript: 3,
+      notes: 8,
+    });
+    await expect(
+      fingerprintSourceChunks(recovered.processed.chunks),
+    ).resolves.toEqual(EXPECTED_FINGERPRINTS);
+  });
+
+  it("never applies the demo fallback to an unrelated processing error", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const files: SourceFiles = {
+      slides: new File(["%PDF-demo"], "lecture.pdf", {
+        type: "application/pdf",
+      }),
+      transcript: new File(["Transcript"], "transcript.txt", {
+        type: "text/plain",
+      }),
+      notes: new File(["# Notes"], "notes.md", { type: "text/markdown" }),
+    };
+    const original = new SourceProcessingError(
+      "invalid_encoding",
+      "transcript",
+      "Invalid transcript.",
+    );
+
+    await expect(recoverDemoPdfExtraction(original, files)).rejects.toBe(original);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
