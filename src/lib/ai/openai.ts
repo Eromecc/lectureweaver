@@ -4,6 +4,7 @@ import { zodTextFormat } from "openai/helpers/zod";
 import type {
   AnalysisOutputOptions,
   ModelAnalysis,
+  OutputLanguage,
   SourceChunk,
 } from "@/domain";
 
@@ -26,6 +27,7 @@ export type OpenAIInvocation = {
   model: string;
   chunks: SourceChunk[];
   outputs?: AnalysisOutputOptions;
+  outputLanguage?: OutputLanguage;
 };
 
 export type OpenAIInvoker = (
@@ -97,6 +99,7 @@ export const invokeOpenAIResponses: OpenAIInvoker = async ({
   model,
   chunks,
   outputs = { ankiCards: false },
+  outputLanguage = "en",
 }) => {
   const client = new OpenAI({
     apiKey,
@@ -106,8 +109,8 @@ export const invokeOpenAIResponses: OpenAIInvoker = async ({
 
   const response = await client.responses.parse({
     model,
-    instructions: buildAnalysisInstructions(outputs),
-    input: buildAnalysisInput(chunks, outputs),
+    instructions: buildAnalysisInstructions(outputs, outputLanguage),
+    input: buildAnalysisInput(chunks, outputs, outputLanguage),
     store: false,
     max_output_tokens: MAX_MODEL_OUTPUT_TOKENS,
     text: {

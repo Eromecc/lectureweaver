@@ -44,6 +44,7 @@ function analyzeRequest(model = "deepseek-v4-flash"): AnalyzeRequest {
     provider: "deepseek",
     model,
     credentialMode: "deployment",
+    outputLanguage: "en",
     outputs: { ankiCards: true },
     chunks,
   };
@@ -274,6 +275,24 @@ describe("POST /api/analyze", () => {
       retryable: false,
     });
     expect(text).not.toContain("deployment-key-must-not-be-used");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsupported output language before provider work", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "deployment-key-must-not-be-used");
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(
+      jsonRequest({ ...analyzeRequest(), outputLanguage: "fr" }),
+    );
+    const payload = AnalyzeErrorSchema.parse(await responsePayload(response));
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

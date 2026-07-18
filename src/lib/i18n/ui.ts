@@ -190,7 +190,28 @@ const ENGLISH_UI_MESSAGES = {
   "provider.reloadAfterConfig":
     "Redeploy after changing Vercel environment variables, then reload this page.",
 
+  "analysis.chooseProvider": "Choose an AI provider and model.",
+  "analysis.invalidKey":
+    "The temporary {provider} key is invalid. Correct or clear it before analysis.",
+  "analysis.kimiRegion": "Choose the Kimi API region before analysis.",
+  "analysis.enterKey":
+    "Enter a valid temporary {provider} key above, or configure its deployment key.",
+  "analysis.addSources":
+    "Add and confirm the lecture, transcript, and notes before analysis.",
+  "analysis.busy":
+    "Wait for the current processing step to finish before starting analysis.",
+  "analysis.ready":
+    "{provider} is ready. Starting analysis will send the normalized source text.",
+
   "outputs.legend": "Study pack outputs",
+  "outputs.languageLabel": "Output language",
+  "outputs.followInterface": "Follow interface ({language})",
+  "outputs.languageDescription":
+    "Choose the language for the next live analysis. Existing results are not translated automatically.",
+  "outputs.demoLanguageNote":
+    "The deterministic included demo remains a fixed English sample.",
+  "outputs.alwaysIncluded": "Always included",
+  "outputs.optional": "Optional",
   "outputs.notesTitle": "Enhanced notes",
   "outputs.notesDescription":
     "Always rebuild a complete, logically ordered Markdown study guide.",
@@ -584,7 +605,25 @@ const SIMPLIFIED_CHINESE_UI_MESSAGES = {
   "provider.reloadAfterConfig":
     "修改 Vercel 环境变量后请重新部署，再刷新本页面。",
 
+  "analysis.chooseProvider": "请选择 AI 服务商和模型。",
+  "analysis.invalidKey":
+    "临时 {provider} 密钥无效；请更正或清除后再分析。",
+  "analysis.kimiRegion": "请先选择 Kimi API 区域。",
+  "analysis.enterKey":
+    "请在上方输入有效的临时 {provider} 密钥，或为该服务商配置部署密钥。",
+  "analysis.addSources": "请先添加并确认讲义、讲稿和笔记。",
+  "analysis.busy": "请等待当前处理步骤完成后再开始分析。",
+  "analysis.ready":
+    "{provider} 已就绪；开始分析会发送规范化后的来源文本。",
+
   "outputs.legend": "学习资料包输出",
+  "outputs.languageLabel": "输出语言",
+  "outputs.followInterface": "跟随界面（{language}）",
+  "outputs.languageDescription":
+    "选择下一次实时分析的生成语言；已有结果不会自动翻译。",
+  "outputs.demoLanguageNote": "内置确定性演示仍使用固定英文样例。",
+  "outputs.alwaysIncluded": "始终包含",
+  "outputs.optional": "可选",
   "outputs.notesTitle": "增强笔记",
   "outputs.notesDescription": "始终重建一份完整、逻辑清晰的 Markdown 学习指南。",
   "outputs.ankiTitle": "生成 Anki 卡片",
@@ -954,7 +993,28 @@ const JAPANESE_UI_MESSAGES = {
   "provider.reloadAfterConfig":
     "Vercel の環境変数を変更した後は再デプロイし、このページを再読み込みしてください。",
 
+  "analysis.chooseProvider": "AI プロバイダーとモデルを選択してください。",
+  "analysis.invalidKey":
+    "一時 {provider} キーが無効です。分析前に修正するか消去してください。",
+  "analysis.kimiRegion": "分析前に Kimi API リージョンを選択してください。",
+  "analysis.enterKey":
+    "上で有効な一時 {provider} キーを入力するか、デプロイキーを設定してください。",
+  "analysis.addSources":
+    "分析前に講義資料、文字起こし、ノートを追加して確定してください。",
+  "analysis.busy":
+    "現在の処理が完了してから分析を開始してください。",
+  "analysis.ready":
+    "{provider} の準備ができました。分析を開始すると正規化済みソーステキストが送信されます。",
+
   "outputs.legend": "学習パックの出力",
+  "outputs.languageLabel": "出力言語",
+  "outputs.followInterface": "表示言語に合わせる（{language}）",
+  "outputs.languageDescription":
+    "次回のライブ分析で生成する言語を選択します。既存の結果は自動翻訳されません。",
+  "outputs.demoLanguageNote":
+    "内蔵の決定的デモは固定の英語サンプルです。",
+  "outputs.alwaysIncluded": "常に含む",
+  "outputs.optional": "任意",
   "outputs.notesTitle": "拡張ノート",
   "outputs.notesDescription": "完全で論理的に整理された Markdown 学習ガイドを毎回再構成します。",
   "outputs.ankiTitle": "Anki カードを作成",
@@ -1324,7 +1384,27 @@ const KOREAN_UI_MESSAGES = {
   "provider.reloadAfterConfig":
     "Vercel 환경 변수를 변경한 뒤 다시 배포하고 이 페이지를 새로고침하세요.",
 
+  "analysis.chooseProvider": "AI 제공업체와 모델을 선택하세요.",
+  "analysis.invalidKey":
+    "임시 {provider} 키가 올바르지 않습니다. 분석 전에 수정하거나 지우세요.",
+  "analysis.kimiRegion": "분석 전에 Kimi API 리전을 선택하세요.",
+  "analysis.enterKey":
+    "위에 유효한 임시 {provider} 키를 입력하거나 배포 키를 설정하세요.",
+  "analysis.addSources":
+    "분석 전에 강의 자료, 전사문, 노트를 추가하고 확정하세요.",
+  "analysis.busy": "현재 처리가 끝난 뒤 분석을 시작하세요.",
+  "analysis.ready":
+    "{provider} 준비가 완료되었습니다. 분석을 시작하면 정규화된 소스 텍스트가 전송됩니다.",
+
   "outputs.legend": "학습 자료 출력",
+  "outputs.languageLabel": "출력 언어",
+  "outputs.followInterface": "인터페이스 언어 따르기({language})",
+  "outputs.languageDescription":
+    "다음 라이브 분석에서 생성할 언어를 선택합니다. 기존 결과는 자동 번역되지 않습니다.",
+  "outputs.demoLanguageNote":
+    "내장된 결정적 데모는 고정된 영어 샘플입니다.",
+  "outputs.alwaysIncluded": "항상 포함",
+  "outputs.optional": "선택 사항",
   "outputs.notesTitle": "보강 노트",
   "outputs.notesDescription": "완전하고 논리적으로 정리된 Markdown 학습 가이드를 항상 다시 만듭니다.",
   "outputs.ankiTitle": "Anki 카드 만들기",

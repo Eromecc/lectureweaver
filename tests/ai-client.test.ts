@@ -73,6 +73,7 @@ describe("live analysis browser client credentials", () => {
         provider: "deepseek",
         model: "deepseek-v4-flash",
         credentialMode: "session",
+        outputLanguage: "zh-CN",
       });
       expect(body).not.toHaveProperty("kimiRegion");
       expect(bodyText).not.toContain(credential);
@@ -87,7 +88,7 @@ describe("live analysis browser client credentials", () => {
       processed,
       { provider: "deepseek", model: "deepseek-v4-flash" },
       { ankiCards: false },
-      { fetchImpl, sessionApiKey: credential },
+      { fetchImpl, sessionApiKey: credential, outputLanguage: "zh-CN" },
     );
 
     expect(fetchImpl).toHaveBeenCalledOnce();
@@ -119,6 +120,7 @@ describe("live analysis browser client credentials", () => {
 
       expect(headers.has("x-lectureweaver-provider-key")).toBe(false);
       expect(body.credentialMode).toBe("deployment");
+      expect(body.outputLanguage).toBe("en");
       return Response.json({
         provider: "openai",
         model: "gpt-5.6",

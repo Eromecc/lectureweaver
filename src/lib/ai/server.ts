@@ -4,6 +4,7 @@ import type {
   AnalysisOutputOptions,
   KimiRegion,
   ModelAnalysis,
+  OutputLanguage,
   ProviderId,
   SourceChunk,
 } from "@/domain";
@@ -34,6 +35,7 @@ export type ProviderAnalyzerInput = {
   model: string;
   chunks: SourceChunk[];
   outputs: AnalysisOutputOptions;
+  outputLanguage: OutputLanguage;
 };
 
 export type ProviderAnalyzer = (
@@ -48,9 +50,9 @@ const KIMI_BASE_URLS = {
 } as const;
 
 const DEFAULT_ANALYZERS: ProviderAnalyzers = {
-  openai: ({ apiKey, model, chunks, outputs }) =>
-    analyzeWithOpenAI({ apiKey, model, chunks, outputs }),
-  deepseek: ({ apiKey, baseUrl, model, chunks, outputs }) =>
+  openai: ({ apiKey, model, chunks, outputs, outputLanguage }) =>
+    analyzeWithOpenAI({ apiKey, model, chunks, outputs, outputLanguage }),
+  deepseek: ({ apiKey, baseUrl, model, chunks, outputs, outputLanguage }) =>
     analyzeWithChatCompletions({
       provider: "deepseek",
       apiKey,
@@ -58,8 +60,9 @@ const DEFAULT_ANALYZERS: ProviderAnalyzers = {
       model,
       chunks,
       outputs,
+      outputLanguage,
     }),
-  kimi: ({ apiKey, baseUrl, model, chunks, outputs }) =>
+  kimi: ({ apiKey, baseUrl, model, chunks, outputs, outputLanguage }) =>
     analyzeWithChatCompletions({
       provider: "kimi",
       apiKey,
@@ -67,6 +70,7 @@ const DEFAULT_ANALYZERS: ProviderAnalyzers = {
       model,
       chunks,
       outputs,
+      outputLanguage,
     }),
 };
 
@@ -180,6 +184,7 @@ export async function analyzeWithSelectedProvider(
       model: request.model,
       chunks: request.chunks,
       outputs: request.outputs,
+      outputLanguage: request.outputLanguage,
     });
     const validated = validateModelAnalysisAgainstChunks(
       analysis,

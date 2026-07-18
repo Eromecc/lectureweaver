@@ -196,6 +196,46 @@ describe("evidence validation and hydration", () => {
     expect(markdown.endsWith("\n")).toBe(true);
   });
 
+  it("localizes deterministic enhanced-note and changes-only labels in Chinese", () => {
+    const assessments = [
+      makeAssessment("missing-core", "missing", ["slides:p0001:c01"]),
+      makeAssessment("partial-core", "partial", [
+        "slides:p0001:c01",
+        "notes:p0001-p0002:c01",
+      ]),
+      makeAssessment("contradiction-core", "contradiction", [
+        "transcript:p0001-p0002:c01",
+        "notes:p0003:c01",
+      ]),
+    ];
+    const hydrated = hydrateAnalysis(
+      buildTestAnalysis(assessments, {
+        summary: "Several additions are recommended.",
+      }),
+      sourceChunks,
+    );
+
+    const enhancedMarkdown = generateEnhancedNotesMarkdown(
+      hydrated,
+      "zh-CN",
+    );
+    const changesMarkdown = generateMarkdownPatch(hydrated, "zh-CN");
+
+    expect(enhancedMarkdown).toContain("## 目录");
+    expect(enhancedMarkdown).toContain("**学习目标:**");
+    expect(enhancedMarkdown).toContain("> 证据: lecture.pdf · Page 1");
+    expect(enhancedMarkdown).not.toContain("## Contents");
+    expect(enhancedMarkdown).not.toContain("**Learning objective:**");
+
+    expect(changesMarkdown).toContain("# 建议补充的笔记");
+    expect(changesMarkdown).toContain("## 缺失概念");
+    expect(changesMarkdown).toContain("## 覆盖不完整的概念");
+    expect(changesMarkdown).toContain("## 可能的矛盾");
+    expect(changesMarkdown).toContain("> 证据: lecture.pdf · Page 1");
+    expect(changesMarkdown).not.toContain("# Suggested note additions");
+    expect(changesMarkdown).not.toContain("> Evidence:");
+  });
+
   it("returns no patch when every concept is covered", () => {
     const hydrated = hydrateAnalysis(
       analysisWith(

@@ -2,7 +2,7 @@
 
 LectureWeaver turns a lecture source (PDF, uploaded TXT, or pasted text), an uploaded or pasted transcript (or uploaded lecture recording), and a student's existing notes into an evidence-grounded study pack. It audits coverage, rebuilds the notes into a clearer and more complete learning guide, and can create Anki-ready cards and a downloadable audio study guide. Every generated artifact remains traceable to trusted page, paragraph, or time-range locators.
 
-The current release includes a deterministic no-key sample demo plus optional live analysis with OpenAI, DeepSeek, or Kimi. Live requests can use either a deployment-managed key or a temporary key entered for the current browser tab; OpenAI can also transcribe an uploaded recording into timestamped transcript chunks and turn validated enhanced notes into playable, downloadable speech. The interface is available in English, Simplified Chinese, Japanese, and Korean. The demo exercises the text-based ingestion, validation, evidence, scoring, enhanced-note, and Anki-export pipeline and never needs an API key.
+The current release includes a deterministic no-key sample demo plus optional live analysis with OpenAI, DeepSeek, or Kimi. Live requests can use either a deployment-managed key or a temporary key entered for the current browser tab; OpenAI can also transcribe an uploaded recording into timestamped transcript chunks and turn validated enhanced notes into playable, downloadable speech. The interface is available in English, Simplified Chinese, Japanese, and Korean, and live study-pack output can use the same four languages. The demo exercises the text-based ingestion, validation, evidence, scoring, enhanced-note, and Anki-export pipeline and never needs an API key.
 
 ## Judge path — no key, under two minutes
 
@@ -13,7 +13,7 @@ Once the app is open locally or on Vercel:
 3. Open **Audit trail** to review the coverage score, filter to **Missing**, and verify an issue against its page or paragraph locator.
 4. Open **Anki cards**, reveal an answer, then copy or download the Anki-ready UTF-8 text file. The enhanced Markdown guide can also be copied or downloaded.
 
-This path is deterministic, clearly labeled as simulated, and makes no analysis, transcription, or speech request even when a live provider is configured.
+This path is deterministic, clearly labeled as simulated, and makes no analysis, transcription, or speech request even when a live provider is configured. Its checked-in synthetic sources and fixture output are intentionally English; changing the live output-language selector does not translate or regenerate the fixture.
 
 ## Run locally
 
@@ -29,6 +29,8 @@ Open [http://localhost:3000](http://localhost:3000), then use **Try demo**. No `
 ## Optional live analysis and API keys
 
 The simplest personal path is the in-app **Temporary API key** panel. Choose OpenAI, DeepSeek, or Kimi, paste that provider's API key into its masked field, then run live analysis. The key is held only in this page's memory and is cleared when you clear/reset the app, close/reload the tab, or leave the page. LectureWeaver does not put it in browser storage, cookies, URLs, source/result data, logs, analytics, or a database.
+
+The **Study pack outputs** panel lets a live request produce human-readable analysis and study content in English (`en`), Simplified Chinese (`zh-CN`), Japanese (`ja`), or Korean (`ko`). The default **Follow interface** option resolves to the current interface language; an explicit choice remains independent of later interface changes. The selection applies to the next live analysis only. Existing results are not automatically translated, and the included fixture demo remains its honest English sample. Machine-controlled values—including IDs, enum values, chunk references, source names, filenames, page/paragraph/time locators, code, formulas, and technical identifiers—remain verbatim in every language.
 
 This is not a “never leaves your browser” design: the temporary key crosses the same-origin HTTPS Vercel function in a secret request header and is forwarded only to the selected allowlisted provider. It remains visible to your local browser/device, developer tools, and potentially browser extensions; the Vercel function and provider are also within the trust boundary. Prefer a non-production/restricted provider key with a small budget, and revoke it if the device is not trusted. Temporary OpenAI keys enable OpenAI analysis, transcription, and speech; DeepSeek and Kimi keys enable analysis only. Kimi also requires an explicit China (`cn`) or global region choice.
 
@@ -57,13 +59,13 @@ All environment keys are optional and server-only. Never prefix them with `NEXT_
 
 An invalid nonblank `KIMI_REGION` fails closed: Kimi is shown as unconfigured and no source text or key is sent to either regional endpoint.
 
-Choose a provider/model and supply either its temporary key or deployment configuration before selecting a PDF/TXT lecture source or pasting lecture text, adding notes, and supplying an uploaded/pasted transcript or recorded-audio file. If the provider is not ready, LectureWeaver keeps the local source map and sends nothing. A failed live request also preserves the parsed source map so the user can retry, switch providers, or use the demo.
+Choose a provider/model and supply either its temporary key or deployment configuration before selecting a PDF/TXT lecture source or pasting lecture text, adding notes, and supplying an uploaded/pasted transcript or recorded-audio file. The live-analysis action remains visible throughout setup; until the selected provider, credential/region, and required sources are ready, it is disabled with a specific readiness explanation and sends nothing. A failed live request also preserves the parsed source map so the user can retry, switch providers, or use the demo.
 
 Uploaded TXT and directly pasted text are parsed locally through the same UTF-8 validation, normalization, chunking, and locator pipeline for both lecture and transcript sources. Recorded audio is different: after an explicit disclosure and user action, its raw bytes cross `POST /api/transcribe` and are sent to OpenAI for transcription. The returned speaker-aware time segments are validated and converted into the same trusted `transcript` chunk shape used by the existing evidence pipeline. LectureWeaver does not persist or log the audio or transcript. This release accepts completed uploads only; it does not access the microphone or perform realtime recording.
 
 `/api/transcribe` accepts bounded multipart uploads in FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, or WebM form. The browser checks extension, MIME type, and size early; the server repeats those checks and requires the file signature to identify the same format family. OpenAI currently permits transcription uploads up to 25 MB, but this Vercel-oriented build deliberately caps the audio file at **4,000,000 bytes** and the complete multipart body at **4,250,000 bytes** to stay below Vercel's 4.5 MB Function payload limit. Larger recordings are rejected with recovery guidance; they are never silently truncated or automatically split. See the official [OpenAI transcription API reference](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create), [speech-to-text guide](https://developers.openai.com/api/docs/guides/speech-to-text), and [Vercel Function limits](https://vercel.com/docs/functions/limitations#request-body-size).
 
-**Build local source map** never calls a provider. **Extract and analyze with …** is the explicit transmission action for the selected ready provider; an existing map can instead use **Analyze current source map with …** without re-extraction.
+**Build local source map** never calls a provider. **Extract and analyze with …** is the explicit transmission action for the selected ready provider; when prerequisites are missing it stays visible but disabled with the reason. An existing map can instead use **Analyze current source map with …** without re-extraction.
 
 Live analysis has three ordered timeout ceilings: the upstream provider request is bounded at 150 seconds, the browser request at 170 seconds, and the Vercel function at 180 seconds. The gaps leave time to cancel upstream work and return a validated error before the outer layer expires. A timeout keeps the local source map available, so the user can retry the same map or choose another ready provider without parsing the files again. LectureWeaver never retries a paid model request automatically because an interrupted request may still have consumed provider resources; every retry is a deliberate user action and may incur a new charge.
 
@@ -89,9 +91,9 @@ ChatGPT and Codex subscriptions do **not** fund analysis, transcription, or spee
 ```
 
 - Raw PDF, uploaded/pasted lecture text, uploaded/pasted transcript text, and Markdown are parsed in the browser and are never posted as files to `/api/analyze`. An uploaded recording is sent only through `POST /api/transcribe` after the interface discloses that transmission and the user explicitly starts it.
-- A live request sends normalized text chunks, including their structural IDs and trusted locators. Those chunks contain source text, so users should treat live analysis as a transmission to the selected AI provider.
+- A live request sends normalized text chunks, including their structural IDs and trusted locators, plus the allowlisted output-language selection. Those chunks contain source text, so users should treat live analysis as a transmission to the selected AI provider.
 - Transcription segments become `transcript` chunks with validated, timestamp-based locators. Later analysis may reference their chunk IDs but cannot invent or replace the speaker, time range, filename, or excerpt.
-- Provider output may supply structured assessments, enhanced-note prose, card prompts/answers, chunk IDs, and relevance. It cannot supply trusted filenames, locators, heading paths, excerpts, export tags, or source citations; those are hydrated or derived by the application.
+- Provider output may supply structured assessments, enhanced-note prose, card prompts/answers, chunk IDs, and relevance in the requested human language. It cannot supply trusted filenames, locators, heading paths, excerpts, export tags, or source citations; those are hydrated or derived by the application and remain verbatim.
 - Provider output must pass the strict wire Zod schema, the domain schema, duplicate/reference checks, change-type rules, output-option rules, and artifact-specific evidence rules. Invalid or truncated output fails closed.
 - Generated Markdown rejects raw HTML, images, autolinks, Markdown links/references, and bare external URLs before it can be copied or downloaded. Anki fields are HTML-escaped before export.
 - LectureWeaver calculates the score, counts, ordering, evidence hydration, Markdown assembly, Anki tags, and Anki import text in application code. Providers do not control those values.
@@ -124,7 +126,7 @@ Official contract and model references:
 - Markdown keeps numbered paragraph locators and active ATX or Setext heading paths outside fenced code blocks.
 - Uploaded TXT and pasted lecture text become numbered structural `slides` chunks; uploaded TXT and pasted transcript text become separately numbered structural `transcript` chunks. An uploaded completed recording may replace the transcript text; OpenAI transcription produces speaker-labeled segments with start/end times that LectureWeaver validates and turns into structural transcript chunks with human-readable time locators and speaker-labeled excerpts before analysis.
 - Limits are 10 MiB for PDF, 1 MiB for each text file, 4,000,000 bytes for an audio upload, 120,000 normalized characters total, 100 chunks, 1,800 characters per chunk, and 4,096 narration characters per speech request. Input is rejected rather than silently truncated.
-- The sample fixture contains chunk references, not trusted display metadata.
+- The sample fixture contains chunk references, not trusted display metadata, and its synthetic study-pack prose is intentionally English.
 - The fixture is accepted only when ordered normalized fingerprints match the checked-in sample manifest. Arbitrary uploads can never receive the sample result.
 
 ### Deterministic study-pack outputs

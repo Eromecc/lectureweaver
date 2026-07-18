@@ -4,6 +4,7 @@ import { z } from "zod";
 import type {
   AnalysisOutputOptions,
   ModelAnalysis,
+  OutputLanguage,
   SourceChunk,
 } from "@/domain";
 
@@ -63,6 +64,7 @@ type ChatAnalysisOptions = {
   model: string;
   chunks: SourceChunk[];
   outputs?: AnalysisOutputOptions;
+  outputLanguage?: OutputLanguage;
   fetchImpl?: typeof fetch;
 };
 
@@ -71,10 +73,17 @@ function requestBody(
   model: string,
   chunks: SourceChunk[],
   outputs: AnalysisOutputOptions,
+  outputLanguage: OutputLanguage,
 ): Record<string, unknown> {
   const messages = [
-    { role: "system", content: buildAnalysisInstructions(outputs) },
-    { role: "user", content: buildAnalysisInput(chunks, outputs) },
+    {
+      role: "system",
+      content: buildAnalysisInstructions(outputs, outputLanguage),
+    },
+    {
+      role: "user",
+      content: buildAnalysisInput(chunks, outputs, outputLanguage),
+    },
   ];
 
   if (provider === "deepseek") {
@@ -186,6 +195,7 @@ export async function analyzeWithChatCompletions({
   model,
   chunks,
   outputs = { ankiCards: false },
+  outputLanguage = "en",
   fetchImpl = fetch,
 }: ChatAnalysisOptions): Promise<ModelAnalysis> {
   const providerLabel = getProviderLabel(provider);
@@ -202,7 +212,9 @@ export async function analyzeWithChatCompletions({
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(requestBody(provider, model, chunks, outputs)),
+      body: JSON.stringify(
+        requestBody(provider, model, chunks, outputs, outputLanguage),
+      ),
       signal: controller.signal,
     });
 

@@ -1,4 +1,4 @@
-import type { AssessmentStatus, Importance } from "@/domain";
+import type { AssessmentStatus, Importance, OutputLanguage } from "@/domain";
 
 import type {
   HydratedAnalysis,
@@ -8,10 +8,59 @@ import type {
 
 const STATUS_ORDER = ["missing", "partial", "contradiction"] as const;
 
-const STATUS_HEADINGS: Record<(typeof STATUS_ORDER)[number], string> = {
-  missing: "Missing concepts",
-  partial: "Partially covered concepts",
-  contradiction: "Possible contradictions",
+type MarkdownLabels = {
+  suggestedAdditions: string;
+  contents: string;
+  learningObjective: string;
+  evidence: string;
+  statusHeadings: Record<(typeof STATUS_ORDER)[number], string>;
+};
+
+const MARKDOWN_LABELS: Readonly<Record<OutputLanguage, MarkdownLabels>> = {
+  en: {
+    suggestedAdditions: "Suggested note additions",
+    contents: "Contents",
+    learningObjective: "Learning objective",
+    evidence: "Evidence",
+    statusHeadings: {
+      missing: "Missing concepts",
+      partial: "Partially covered concepts",
+      contradiction: "Possible contradictions",
+    },
+  },
+  "zh-CN": {
+    suggestedAdditions: "建议补充的笔记",
+    contents: "目录",
+    learningObjective: "学习目标",
+    evidence: "证据",
+    statusHeadings: {
+      missing: "缺失概念",
+      partial: "覆盖不完整的概念",
+      contradiction: "可能的矛盾",
+    },
+  },
+  ja: {
+    suggestedAdditions: "推奨ノート追記",
+    contents: "目次",
+    learningObjective: "学習目標",
+    evidence: "根拠",
+    statusHeadings: {
+      missing: "不足している概念",
+      partial: "一部のみ扱われた概念",
+      contradiction: "考えられる矛盾",
+    },
+  },
+  ko: {
+    suggestedAdditions: "권장 노트 추가 사항",
+    contents: "목차",
+    learningObjective: "학습 목표",
+    evidence: "근거",
+    statusHeadings: {
+      missing: "누락된 개념",
+      partial: "일부만 다룬 개념",
+      contradiction: "가능한 모순",
+    },
+  },
 };
 
 const STATUS_RANK: Readonly<Record<AssessmentStatus, number>> = {
@@ -99,13 +148,17 @@ function sortedActionableAssessments(
     .map(({ assessment }) => assessment);
 }
 
-export function generateMarkdownPatch(analysis: HydratedAnalysis): string {
+export function generateMarkdownPatch(
+  analysis: HydratedAnalysis,
+  outputLanguage: OutputLanguage = "en",
+): string {
   const assessments = sortedActionableAssessments(analysis.assessments);
   if (assessments.length === 0) {
     return "";
   }
 
-  const output: string[] = ["# Suggested note additions"];
+  const labels = MARKDOWN_LABELS[outputLanguage];
+  const output: string[] = [`# ${labels.suggestedAdditions}`];
 
   for (const status of STATUS_ORDER) {
     const matchingAssessments = assessments.filter(
@@ -115,7 +168,7 @@ export function generateMarkdownPatch(analysis: HydratedAnalysis): string {
       continue;
     }
 
-    output.push("", `## ${STATUS_HEADINGS[status]}`);
+    output.push("", `## ${labels.statusHeadings[status]}`);
     for (const assessment of matchingAssessments) {
       output.push(
         "",
@@ -123,7 +176,7 @@ export function generateMarkdownPatch(analysis: HydratedAnalysis): string {
         "",
         assessment.suggestedPatch ?? "",
         "",
-        `> Evidence: ${formatMarkdownEvidence(assessment.evidence)}`,
+        `> ${labels.evidence}: ${formatMarkdownEvidence(assessment.evidence)}`,
       );
     }
   }
@@ -131,7 +184,11 @@ export function generateMarkdownPatch(analysis: HydratedAnalysis): string {
   return `${output.join("\n").trim()}\n`;
 }
 
-export function generateEnhancedNotesMarkdown(analysis: HydratedAnalysis): string {
+export function generateEnhancedNotesMarkdown(
+  analysis: HydratedAnalysis,
+  outputLanguage: OutputLanguage = "en",
+): string {
+  const labels = MARKDOWN_LABELS[outputLanguage];
   const sectionHeadings = analysis.enhancedNotes.sections.map(
     (section, index) => `${index + 1}. ${section.heading}`,
   );
@@ -140,7 +197,7 @@ export function generateEnhancedNotesMarkdown(analysis: HydratedAnalysis): strin
     "",
     analysis.enhancedNotes.overview,
     "",
-    "## Contents",
+    `## ${labels.contents}`,
   ];
 
   sectionHeadings.forEach((heading) => {
@@ -154,11 +211,11 @@ export function generateEnhancedNotesMarkdown(analysis: HydratedAnalysis): strin
       "",
       `## ${escapeInlineMarkdown(sectionHeadings[index] ?? section.heading)}`,
       "",
-      `**Learning objective:** ${escapeInlineMarkdown(section.learningObjective)}`,
+      `**${labels.learningObjective}:** ${escapeInlineMarkdown(section.learningObjective)}`,
       "",
       section.markdown,
       "",
-      `> Evidence: ${formatMarkdownEvidence(section.evidence)}`,
+      `> ${labels.evidence}: ${formatMarkdownEvidence(section.evidence)}`,
     );
   });
 

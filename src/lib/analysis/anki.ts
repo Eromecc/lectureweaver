@@ -1,8 +1,17 @@
+import type { OutputLanguage } from "@/domain";
+
 import type {
   HydratedAnalysis,
   HydratedAnkiCard,
 } from "./hydration";
 import { formatTrustedEvidence } from "./markdown";
+
+const SOURCE_LABELS: Readonly<Record<OutputLanguage, string>> = {
+  en: "Source",
+  "zh-CN": "来源",
+  ja: "出典",
+  ko: "출처",
+};
 
 function escapeHtml(value: string): string {
   return value
@@ -48,7 +57,10 @@ function tagsForCard(
   ].sort();
 }
 
-export function generateAnkiImportText(analysis: HydratedAnalysis): string {
+export function generateAnkiImportText(
+  analysis: HydratedAnalysis,
+  outputLanguage: OutputLanguage = "en",
+): string {
   const output = [
     "#separator:tab",
     "#html:true",
@@ -58,7 +70,7 @@ export function generateAnkiImportText(analysis: HydratedAnalysis): string {
 
   for (const card of analysis.ankiCards) {
     const source = formatTrustedEvidence(card.evidence);
-    const back = `${textToAnkiHtml(card.back)}<br><br>Source: ${textToAnkiHtml(source)}`;
+    const back = `${textToAnkiHtml(card.back)}<br><br>${SOURCE_LABELS[outputLanguage]}: ${textToAnkiHtml(source)}`;
     output.push(
       [
         quoteTsvField(textToAnkiHtml(card.front)),

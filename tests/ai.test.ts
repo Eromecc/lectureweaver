@@ -242,6 +242,24 @@ describe("AI provider catalog and request contract", () => {
     ).toBe(false);
   });
 
+  it("defaults the output language to English and rejects unsupported languages", () => {
+    const request = AnalyzeRequestSchema.parse({
+      provider: "openai",
+      model: "gpt-5.6",
+      credentialMode: "deployment",
+      outputs: { ankiCards: true },
+      chunks: sourceChunks,
+    });
+
+    expect(request.outputLanguage).toBe("en");
+    expect(
+      AnalyzeRequestSchema.safeParse({
+        ...request,
+        outputLanguage: "fr",
+      }).success,
+    ).toBe(false);
+  });
+
   it("enforces per-chunk, aggregate, and chunk-count caps", () => {
     const oversizedChunk = AnalyzeRequestSchema.safeParse({
       provider: "openai",
@@ -516,6 +534,7 @@ describe("wire parsing and OpenAI injection", () => {
       provider: "kimi",
       model: "kimi-k3",
       credentialMode: "deployment",
+      outputLanguage: "ja",
       outputs: { ankiCards: true },
       chunks: sourceChunks,
     });
@@ -530,6 +549,7 @@ describe("wire parsing and OpenAI injection", () => {
       expect.objectContaining({
         provider: "kimi",
         baseUrl: "https://api.moonshot.ai/v1",
+        outputLanguage: "ja",
       }),
     );
   });
@@ -607,6 +627,7 @@ describe("DeepSeek and Kimi Chat Completions adapters", () => {
       baseUrl: "https://api.deepseek.example",
       model: "deepseek-v4-flash",
       chunks: sourceChunks,
+      outputLanguage: "zh-CN",
       fetchImpl: fetchMock,
     });
 
@@ -628,6 +649,13 @@ describe("DeepSeek and Kimi Chat Completions adapters", () => {
     expect(body).not.toHaveProperty("max_completion_tokens");
     expect(JSON.stringify(body.messages)).toContain("Format example only");
     expect(JSON.stringify(body.messages)).toContain("slides:p0001:c01");
+    expect(JSON.stringify(body.messages)).toContain(
+      "Simplified Chinese (zh-CN)",
+    );
+    expect(JSON.stringify(body.messages)).toContain("简要说明整体完整性情况");
+    expect(JSON.stringify(body.messages)).toContain(
+      "Preserve machine-controlled content exactly",
+    );
   });
 
   it("sends Kimi strict JSON Schema and completion-token fields", async () => {

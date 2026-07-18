@@ -41,6 +41,7 @@ import type {
   AudioVoice,
   KimiRegion,
   NoteChangeType,
+  OutputLanguage,
   ProviderId,
   PublicProviderCatalog,
   SourceType,
@@ -166,8 +167,21 @@ type EvidenceDrawerSelection =
 
 type PublicProvider = PublicProviderCatalog["providers"][number];
 type SessionProviderKeys = Partial<Record<ProviderId, string>>;
+type OutputLanguagePreference = "follow-interface" | OutputLanguage;
 
 const EMPTY_PROVIDER_CATALOG: PublicProviderCatalog = { providers: [] };
+
+function isOutputLanguagePreference(
+  value: string,
+): value is OutputLanguagePreference {
+  return (
+    value === "follow-interface" ||
+    value === "en" ||
+    value === "zh-CN" ||
+    value === "ja" ||
+    value === "ko"
+  );
+}
 
 const SOURCE_SPECS: readonly SourceSpec[] = [
   {
@@ -1602,46 +1616,108 @@ function ProviderControls({
 
 function OutputOptions({
   includeAnki,
+  locale,
+  outputLanguagePreference,
   disabled,
-  onChange,
+  onAnkiChange,
+  onOutputLanguageChange,
   t,
 }: {
   includeAnki: boolean;
+  locale: UiLocale;
+  outputLanguagePreference: OutputLanguagePreference;
   disabled: boolean;
-  onChange: (includeAnki: boolean) => void;
+  onAnkiChange: (includeAnki: boolean) => void;
+  onOutputLanguageChange: (language: OutputLanguagePreference) => void;
   t: UiTranslator;
 }) {
+  const interfaceLanguage =
+    UI_LOCALE_OPTIONS.find((option) => option.value === locale)?.label ??
+    locale;
+
   return (
-    <fieldset className="mt-4 rounded-[24px] border border-[#14213d]/10 bg-[#14213d] p-4 text-white sm:p-5">
-      <legend className="px-2 text-xs font-bold uppercase tracking-[0.16em] text-[#b8dcd6]">
-        {t("outputs.legend")}
-      </legend>
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+    <section
+      aria-labelledby="study-pack-outputs-title"
+      className="mt-4 min-w-0 rounded-[24px] border border-[#14213d]/10 bg-[#14213d] p-4 text-white sm:p-5"
+    >
+      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <h2
+            id="study-pack-outputs-title"
+            className="inline-flex max-w-full rounded-xl bg-white/10 px-3 py-2 text-sm font-bold leading-5 text-[#b8dcd6] [overflow-wrap:anywhere]"
+          >
+            {t("outputs.legend")}
+          </h2>
+          <p className="mt-2 max-w-2xl text-xs leading-5 text-white/60">
+            {t("outputs.languageDescription")}
+          </p>
+        </div>
+
+        <label
+          className="block min-w-0 text-xs font-bold text-white lg:w-80 lg:shrink-0"
+          htmlFor="study-pack-output-language"
+        >
+          {t("outputs.languageLabel")}
+          <select
+            id="study-pack-output-language"
+            value={outputLanguagePreference}
+            disabled={disabled}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              if (isOutputLanguagePreference(value)) {
+                onOutputLanguageChange(value);
+              }
+            }}
+            className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-white px-3 text-sm text-[#14213d] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <option value="follow-interface">
+              {t("outputs.followInterface", { language: interfaceLanguage })}
+            </option>
+            {UI_LOCALE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="mt-4 grid min-w-0 gap-3 lg:grid-cols-2">
+        <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.06] p-4">
           <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#2f837c]">
             <BookOpen className="size-5" aria-hidden="true" />
           </span>
-          <div>
-            <p className="text-sm font-bold">{t("outputs.notesTitle")}</p>
+          <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <p className="text-sm font-bold">{t("outputs.notesTitle")}</p>
+              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-[#b8dcd6]">
+                {t("outputs.alwaysIncluded")}
+              </span>
+            </div>
             <p className="mt-1 text-xs leading-5 text-white/60">
               {t("outputs.notesDescription")}
             </p>
           </div>
         </div>
 
-        <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.06] p-4 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#ef6b5a]">
+        <label className="flex min-w-0 cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.06] p-4 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#ef6b5a]">
           <input
             type="checkbox"
             checked={includeAnki}
             disabled={disabled}
-            onChange={(event) => onChange(event.currentTarget.checked)}
+            onChange={(event) => onAnkiChange(event.currentTarget.checked)}
             className="mt-2 size-4 shrink-0 accent-[#ef6b5a]"
           />
           <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#ef6b5a]">
             <Brain className="size-5" aria-hidden="true" />
           </span>
-          <span>
-            <span className="block text-sm font-bold">{t("outputs.ankiTitle")}</span>
+          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+            <span className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="block text-sm font-bold">{t("outputs.ankiTitle")}</span>
+              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-[#ffd5cf]">
+                {t("outputs.optional")}
+              </span>
+            </span>
             <span className="mt-1 block text-xs leading-5 text-white/60">
               {t("outputs.ankiDescription")}
             </span>
@@ -1651,7 +1727,10 @@ function OutputOptions({
       <p className="mt-3 px-1 text-xs leading-5 text-white/55">
         {t("outputs.retention")}
       </p>
-    </fieldset>
+      <p className="mt-2 px-1 text-[11px] leading-5 text-white/45">
+        {t("outputs.demoLanguageNote")}
+      </p>
+    </section>
   );
 }
 
@@ -1727,13 +1806,17 @@ function PipelineErrorPanel({
 
 function SourceMapOnlyPanel({
   provider,
+  canAnalyzeLive,
+  analysisHint,
   onTryDemo,
   onAnalyzeLive,
   t,
 }: {
   provider?: PublicProvider;
+  canAnalyzeLive: boolean;
+  analysisHint: string;
   onTryDemo: () => void;
-  onAnalyzeLive?: () => void;
+  onAnalyzeLive: () => void;
   t: UiTranslator;
 }) {
   return (
@@ -1745,16 +1828,24 @@ function SourceMapOnlyPanel({
           </span>
           <div>
             <h2 className="text-lg font-bold tracking-[-0.025em]">{t("empty.title")}</h2>
-            <p className="mt-2 text-sm leading-6 text-[#53627b]">
-              {provider !== undefined && onAnalyzeLive !== undefined
-                ? t("empty.notSent", { provider: provider.label })
-                : t("empty.unconfigured")}
+            <p id="source-map-analysis-status" className="mt-2 text-sm leading-6 text-[#53627b]">
+              {provider === undefined
+                ? t("empty.unconfigured")
+                : canAnalyzeLive
+                  ? t("empty.notSent", { provider: provider.label })
+                  : analysisHint}
             </p>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          {provider !== undefined && onAnalyzeLive !== undefined && (
-            <button type="button" onClick={onAnalyzeLive} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white hover:bg-[#1f625e]">
+          {provider !== undefined && (
+            <button
+              type="button"
+              disabled={!canAnalyzeLive}
+              aria-describedby="source-map-analysis-status"
+              onClick={onAnalyzeLive}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white hover:bg-[#1f625e] disabled:cursor-not-allowed disabled:bg-[#14213d]/20"
+            >
               <ScanText className="size-4" /> {t("empty.analyzeCurrent", { provider: provider.label })}
             </button>
           )}
@@ -2248,7 +2339,12 @@ function AudioStudyGuidePanel({
   t: UiTranslator;
 }) {
   const scripts = useMemo(
-    () => buildNarrationScripts(result.hydrated, MAX_SPEECH_INPUT_CHARACTERS),
+    () =>
+      buildNarrationScripts(
+        result.hydrated,
+        MAX_SPEECH_INPUT_CHARACTERS,
+        result.outputLanguage,
+      ),
     [result],
   );
   const firstAvailableScript = scripts.find((script) => script.withinLimit);
@@ -2855,6 +2951,8 @@ export function LectureWeaver(
   const [sessionKimiRegion, setSessionKimiRegion] =
     useState<KimiRegion | null>(null);
   const [includeAnki, setIncludeAnki] = useState(true);
+  const [outputLanguagePreference, setOutputLanguagePreference] =
+    useState<OutputLanguagePreference>("follow-interface");
   const [resultView, setResultView] = useState<ResultView>("notes");
   const [evidenceSelection, setEvidenceSelection] = useState<EvidenceDrawerSelection | null>(null);
   const [inputKey, setInputKey] = useState(0);
@@ -2906,6 +3004,41 @@ export function LectureWeaver(
     }
     return status === "empty" && selectedProvider.configured;
   }, [selectedProvider, sessionKimiRegion, sessionProviderKeys]);
+  const selectedProviderSessionStatus =
+    selectedProvider === undefined
+      ? "empty"
+      : sessionKeyStatus(sessionProviderKeys[selectedProvider.id]);
+  const resolvedOutputLanguage: OutputLanguage =
+    outputLanguagePreference === "follow-interface"
+      ? locale
+      : outputLanguagePreference;
+  const canAnalyzeLive =
+    selectedProvider !== undefined &&
+    target !== null &&
+    selectedProviderReady &&
+    ready &&
+    !busy;
+  const liveAnalysisHint = (() => {
+    if (busy) return t("analysis.busy");
+    if (selectedProvider === undefined || target === null) {
+      return t("analysis.chooseProvider");
+    }
+    if (selectedProviderSessionStatus === "invalid") {
+      return t("analysis.invalidKey", { provider: selectedProvider.label });
+    }
+    if (
+      selectedProvider.id === "kimi" &&
+      selectedProviderSessionStatus === "valid" &&
+      sessionKimiRegion === null
+    ) {
+      return t("analysis.kimiRegion");
+    }
+    if (!selectedProviderReady) {
+      return t("analysis.enterKey", { provider: selectedProvider.label });
+    }
+    if (!ready) return t("analysis.addSources");
+    return t("analysis.ready", { provider: selectedProvider.label });
+  })();
   const openAiSessionApiKey = useMemo(() => {
     const value = sessionProviderKeys.openai;
     return sessionKeyStatus(value) === "valid" ? value : undefined;
@@ -3368,12 +3501,14 @@ export function LectureWeaver(
             nextProcessed,
             nextTarget,
             outputOptions,
+            { outputLanguage: resolvedOutputLanguage },
           )
         : await requestLiveAnalysis(
             nextProcessed,
             nextTarget,
             outputOptions,
             {
+              outputLanguage: resolvedOutputLanguage,
               sessionApiKey,
               ...(nextTarget.provider === "kimi" && sessionKimiRegion !== null
                 ? { sessionKimiRegion }
@@ -3725,34 +3860,49 @@ export function LectureWeaver(
 
         <OutputOptions
           includeAnki={includeAnki}
+          locale={locale}
+          outputLanguagePreference={outputLanguagePreference}
           disabled={busy}
-          onChange={chooseAnkiOutput}
+          onAnkiChange={chooseAnkiOutput}
+          onOutputLanguageChange={setOutputLanguagePreference}
           t={t}
         />
 
         <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-[#14213d]/10 bg-white/50 p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="flex items-center gap-2 text-xs leading-5 text-[#53627b]"><Lock className="size-4 shrink-0 text-[#2f837c]" /> {t("upload.privacy")}</p>
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
-              disabled={!ready || loading}
-              onClick={() => { if (ready) void runManualPipeline(false); }}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#14213d]/15 bg-white px-5 text-sm font-bold text-[#14213d] transition hover:bg-[#f7f4ec] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loading && loadingKind === "local" ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
-              {t("upload.buildLocal")}
-            </button>
-            {selectedProviderReady && selectedProvider !== undefined && target !== null && (
+          <div className="flex min-w-0 flex-col gap-2 sm:items-end">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               <button
                 type="button"
-                disabled={!ready || loading}
-                onClick={() => { if (ready) void runManualPipeline(true); }}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white transition hover:bg-[#1f625e] disabled:cursor-not-allowed disabled:bg-[#14213d]/20"
+                disabled={!ready || busy}
+                onClick={() => { if (ready) void runManualPipeline(false); }}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#14213d]/15 bg-white px-5 text-sm font-bold text-[#14213d] transition hover:bg-[#f7f4ec] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {loading && loadingKind === "live" ? <LoaderCircle className="size-4 animate-spin" /> : <ScanText className="size-4" />}
-                {t("upload.analyzeWith", { provider: selectedProvider.label })}
+                {loading && loadingKind === "local" ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+                {t("upload.buildLocal")}
               </button>
-            )}
+              {selectedProvider !== undefined && target !== null && (
+                <button
+                  type="button"
+                  disabled={!canAnalyzeLive}
+                  aria-describedby="live-analysis-readiness"
+                  onClick={() => { if (canAnalyzeLive) void runManualPipeline(true); }}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white transition hover:bg-[#1f625e] disabled:cursor-not-allowed disabled:bg-[#14213d]/20"
+                >
+                  {loading && loadingKind === "live" ? <LoaderCircle className="size-4 animate-spin" /> : <ScanText className="size-4" />}
+                  {t("upload.analyzeWith", { provider: selectedProvider.label })}
+                </button>
+              )}
+            </div>
+            <p
+              id="live-analysis-readiness"
+              aria-live="polite"
+              className={`max-w-xl text-xs leading-5 sm:text-right ${
+                canAnalyzeLive ? "font-bold text-[#1f625e]" : "text-[#765511]"
+              }`}
+            >
+              {liveAnalysisHint}
+            </p>
           </div>
         </div>
       </section>
@@ -3781,12 +3931,10 @@ export function LectureWeaver(
           {mode === "source-map" && (
             <SourceMapOnlyPanel
               provider={selectedProvider}
+              canAnalyzeLive={canAnalyzeLive}
+              analysisHint={liveAnalysisHint}
               onTryDemo={() => void tryDemo()}
-              onAnalyzeLive={
-                selectedProviderReady
-                  ? () => void retryLiveAnalysis()
-                  : undefined
-              }
+              onAnalyzeLive={() => void retryLiveAnalysis()}
               t={t}
             />
           )}

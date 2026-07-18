@@ -21,6 +21,7 @@ const modelId = nonEmptyText
 export const ProviderIdSchema = z.enum(["openai", "deepseek", "kimi"]);
 export const CredentialModeSchema = z.enum(["deployment", "session"]);
 export const KimiRegionSchema = z.enum(["cn", "global"]);
+export const OutputLanguageSchema = z.enum(["en", "zh-CN", "ja", "ko"]);
 
 export const AnalysisTargetSchema = z
   .object({
@@ -100,6 +101,7 @@ export const AnalyzeRequestSchema = z
     model: modelId,
     credentialMode: CredentialModeSchema,
     kimiRegion: KimiRegionSchema.optional(),
+    outputLanguage: OutputLanguageSchema.default("en"),
     outputs: AnalysisOutputOptionsSchema,
     chunks: SourceChunkListSchema.min(3).max(MAX_SOURCE_CHUNKS),
   })
@@ -264,6 +266,7 @@ export const AnalyzeErrorSchema = z
 export type ProviderId = z.infer<typeof ProviderIdSchema>;
 export type CredentialMode = z.infer<typeof CredentialModeSchema>;
 export type KimiRegion = z.infer<typeof KimiRegionSchema>;
+export type OutputLanguage = z.infer<typeof OutputLanguageSchema>;
 export type AnalysisTarget = z.infer<typeof AnalysisTargetSchema>;
 export type AnalysisOutputOptions = z.infer<typeof AnalysisOutputOptionsSchema>;
 export type ProviderModel = z.infer<typeof ProviderModelSchema>;

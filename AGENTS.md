@@ -49,6 +49,8 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 - Enhanced-note and Anki evidence must come from linked assessment evidence. Require lecture evidence for every artifact, plus notes evidence for preserved, expanded, and corrected sections.
 - When Anki output is requested, require at least one card and representation of every core assessment. When disabled, require an empty card array.
 - Validate provider output through the strict wire schema, domain schema, and semantic rules before rendering it.
+- Keep output language strict and explicit: live requests accept only `en`, `zh-CN`, `ja`, or `ko`. **Follow interface** is a UI preference that must be resolved before the request; an omitted request field defaults to `en` for backward compatibility.
+- Apply the selected language only to generated human-readable fields. Preserve JSON keys, IDs, enum values, chunk references, source names, filenames, trusted locators, code, formulas, and technical identifiers exactly.
 - Calculate coverage only in application code:
 
   ```text
@@ -71,7 +73,7 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 - Validate the fixture and apply it only after all ordered fingerprints match the manifest.
 - Fail closed on a sample mismatch and direct the user to **Try demo**. Never apply the fixture to arbitrary input or after a live-analysis failure.
 - **Try demo** is always fixture-only and must never issue a provider request, even when keys are configured.
-- Label simulated results honestly.
+- Label simulated results honestly. The included synthetic fixture and its study-pack prose remain English; do not imply that changing the live output-language selector translates or regenerates it.
 
 ## Audio boundary
 
@@ -88,7 +90,7 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 
 ## Live-analysis boundary
 
-- Raw files and file bytes never cross `/api/analyze`. Send only the normalized, validated chunks plus the allowlisted provider/model selection. `POST /api/transcribe` is the only raw-source exception.
+- Raw files and file bytes never cross `/api/analyze`. Send only the normalized, validated chunks plus the allowlisted provider/model and resolved output-language selection. `POST /api/transcribe` is the only raw-source exception.
 - Normalized chunks contain source text. UI and docs must accurately state that live analysis transmits this text to the selected provider.
 - Revalidate content type, body size, source types, chunks, IDs, per-chunk limits, and total limits on the server.
 - The server always chooses allowlisted provider endpoints. A request uses either a deployment credential from the server environment or an explicitly declared temporary current-tab credential, never an arbitrary base URL.
@@ -103,6 +105,7 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 - Never automatically retry a timed-out live provider request. Because the first attempt may already have consumed provider credits, preserve the source map and require an explicit user retry or provider/model change before issuing another request.
 - Map expected failures to the stable API error envelope without leaking provider response bodies, keys, prompts, or internal stack traces.
 - Preserve the local source map when a provider is absent or fails.
+- Existing validated results are immutable with respect to later output-language changes. A new language takes effect only when the user explicitly runs another live analysis.
 - Do not add authentication, a database, persistence, analytics, or logging of source content as part of this milestone.
 
 ## Provider conventions
@@ -141,6 +144,8 @@ Official references:
 - Keep the primary path usable by keyboard and touch with semantic labels, visible focus, sufficient contrast, and overlay focus restoration.
 - Keep **Try demo** prominent and no-key.
 - Show deployment-configured, temporary-key-ready, and local-only states without revealing, fingerprinting, or showing a suffix of credentials. Support English, Simplified Chinese, Japanese, and Korean UI catalogs with identical key/placeholder coverage.
+- Provide a live output-language selector for English, Simplified Chinese, Japanese, and Korean. Default it to **Follow interface**, but keep an explicit user choice independent of later interface changes. State that it applies to the next live analysis, does not auto-translate existing results, and does not change the English fixture demo.
+- Keep the live-analysis action visible throughout setup. Disable it until the selected provider/model, credential and Kimi region when applicable, and required sources are ready; expose the specific readiness reason with accessible text.
 - Distinguish local extraction, audio upload/transcription, live analysis, speech generation, simulated analysis, and source-map-only states honestly.
 - Treat initial, extracting, transcribing, live loading, generating speech, success, empty, validation failure, textless/unreadable PDF with lecture-text recovery, invalid audio, fingerprint mismatch, provider errors, retry, and reset as first-class states.
 - On narrow screens, prevent horizontal overflow and present evidence as an accessible sheet/dialog.
@@ -171,7 +176,7 @@ Requests using deployment credentials spend the deployment owner's provider cred
 
 Add focused regression coverage for behavior changes:
 
-- schemas, duplicate IDs, provider catalog/target validation, request limits, API error envelopes, credential-mode mismatch, no-deployment-key fallback, temporary-key isolation/clearing, and Kimi regional routing;
+- schemas, duplicate IDs, provider catalog/target validation, strict output-language/default behavior, request limits, API error envelopes, credential-mode mismatch, no-deployment-key fallback, temporary-key isolation/clearing, and Kimi regional routing;
 - normalization, ordering, locators, chunk caps, Unicode, CRLF, headings, and fenced-code exclusions;
 - audio extension/MIME/signature checks for every allowlisted format, the exact 4,000,000-byte cap, disclosure gating, multipart route handling, transcription target validation, timestamp/speaker segment validation, and deterministic transcript chunk locators;
 - score rounding, all statuses, zero-assessment rejection, enhanced-note mappings, Anki option semantics, evidence hydration, and deterministic Markdown/Anki exports;
@@ -200,6 +205,7 @@ The release is complete only when:
 - **Try demo** remains a complete, deterministic, no-request judge path under two minutes;
 - PDF/TXT/Markdown files and pasted lecture/transcript text parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
 - configured OpenAI, DeepSeek, and Kimi adapters follow their provider-specific contracts;
+- live output language resolves to `en`, `zh-CN`, `ja`, or `ko`, applies only to a newly requested live result, and never alters trusted source identifiers, evidence locators, existing results, or the English fixture;
 - all provider output passes Zod and semantic validation before trusted hydration;
 - score/counts/Markdown/Anki exports remain application-computed and deterministic;
 - every audit becomes evidence-grounded enhanced notes, and requested Anki output covers all core assessments;

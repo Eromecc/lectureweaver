@@ -486,6 +486,111 @@ describe("LectureWeaver client workflow", () => {
     ).toBeVisible();
   });
 
+  it("keeps the study-pack heading semantically inside its labelled container", () => {
+    render(<LectureWeaver providers={configuredProviders} />);
+
+    const heading = screen.getByRole("heading", {
+      name: "Study pack outputs",
+    });
+    const container = heading.closest("section");
+
+    expect(container).not.toBeNull();
+    expect(heading).toHaveAttribute("id", "study-pack-outputs-title");
+    expect(container).toHaveAttribute(
+      "aria-labelledby",
+      "study-pack-outputs-title",
+    );
+    expect(
+      within(container as HTMLElement).getByLabelText("Output language"),
+    ).toBeVisible();
+    expect(
+      within(container as HTMLElement).getByText("Enhanced notes"),
+    ).toBeVisible();
+  });
+
+  it("keeps the live-analysis action visible and localizes why it is unavailable", async () => {
+    const user = userEvent.setup();
+
+    render(<LectureWeaver providers={temporaryKeyCatalog} />);
+
+    const englishAction = screen.getByRole("button", {
+      name: "Extract and analyze with DeepSeek",
+    });
+    expect(englishAction).toBeDisabled();
+    expect(englishAction).toHaveAccessibleDescription(
+      "Enter a valid temporary DeepSeek key above, or configure its deployment key.",
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Language: 简体中文" }),
+    );
+
+    const chineseAction = screen.getByRole("button", {
+      name: "提取并使用 DeepSeek 分析",
+    });
+    expect(chineseAction).toBeDisabled();
+    expect(chineseAction).toHaveAccessibleDescription(
+      "请在上方输入有效的临时 DeepSeek 密钥，或为该服务商配置部署密钥。",
+    );
+  });
+
+  it("uses the Chinese interface language for the next live analysis by default", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis.mockResolvedValue(liveResult);
+
+    render(<LectureWeaver providers={configuredProviders} />);
+
+    const englishLanguageSelect = screen.getByLabelText("Output language");
+    expect(englishLanguageSelect).toHaveValue("follow-interface");
+    expect(
+      within(englishLanguageSelect).getByRole("option", {
+        name: "Follow interface (English)",
+      }),
+    ).toHaveProperty("selected", true);
+
+    await user.upload(
+      screen.getByLabelText("Choose lecture PDF file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Language: 简体中文" }),
+    );
+
+    const chineseLanguageSelect = screen.getByLabelText("输出语言");
+    expect(chineseLanguageSelect).toHaveValue("follow-interface");
+    expect(
+      within(chineseLanguageSelect).getByRole("option", {
+        name: "跟随界面（简体中文）",
+      }),
+    ).toHaveProperty("selected", true);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "提取并使用 DeepSeek 分析",
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "需要仔细复查" }),
+    ).toBeVisible();
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(
+      processed,
+      { provider: "deepseek", model: "deepseek-v4-pro" },
+      { ankiCards: true },
+      { outputLanguage: "zh-CN" },
+    );
+  });
+
   it("keeps an in-flight demo active and localizes the completed study pack", async () => {
     const user = userEvent.setup();
     const files = sourceFiles();
@@ -1067,19 +1172,20 @@ describe("LectureWeaver client workflow", () => {
     expect(deepSeekKeyInput).toHaveAttribute("spellcheck", "false");
     expect(deepSeekKeyInput).toHaveAttribute("data-1p-ignore", "true");
     expect(deepSeekKeyInput).toHaveAttribute("data-lpignore", "true");
-    expect(
-      screen.queryByRole("button", {
-        name: "Extract and analyze with DeepSeek",
-      }),
-    ).not.toBeInTheDocument();
+    const liveAnalysisButton = screen.getByRole("button", {
+      name: "Extract and analyze with DeepSeek",
+    });
+    expect(liveAnalysisButton).toBeDisabled();
+    expect(liveAnalysisButton).toHaveAccessibleDescription(
+      "Enter a valid temporary DeepSeek key above, or configure its deployment key.",
+    );
 
     await user.type(deepSeekKeyInput, temporaryKey);
     expect(screen.getByText("Temporary key active")).toBeVisible();
-    expect(
-      screen.getByRole("button", {
-        name: "Extract and analyze with DeepSeek",
-      }),
-    ).toBeDisabled();
+    expect(liveAnalysisButton).toBeDisabled();
+    expect(liveAnalysisButton).toHaveAccessibleDescription(
+      "Add and confirm the lecture, transcript, and notes before analysis.",
+    );
 
     await user.upload(
       screen.getByLabelText("Choose lecture PDF file"),
@@ -1106,7 +1212,7 @@ describe("LectureWeaver client workflow", () => {
       processed,
       { provider: "deepseek", model: "deepseek-v4-pro" },
       { ankiCards: true },
-      { sessionApiKey: temporaryKey },
+      { outputLanguage: "en", sessionApiKey: temporaryKey },
     );
     expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(temporaryKey)).not.toBeInTheDocument();
@@ -1128,9 +1234,13 @@ describe("LectureWeaver client workflow", () => {
     );
     const kimiRegion = screen.getByLabelText("Kimi API region");
     expect(kimiRegion).toHaveValue("");
-    expect(
-      screen.queryByRole("button", { name: "Extract and analyze with Kimi" }),
-    ).not.toBeInTheDocument();
+    const kimiAnalysisButton = screen.getByRole("button", {
+      name: "Extract and analyze with Kimi",
+    });
+    expect(kimiAnalysisButton).toBeDisabled();
+    expect(kimiAnalysisButton).toHaveAccessibleDescription(
+      "Choose the Kimi API region before analysis.",
+    );
     expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
     await user.selectOptions(
       kimiRegion,
@@ -1158,6 +1268,7 @@ describe("LectureWeaver client workflow", () => {
       { provider: "kimi", model: "kimi-k3" },
       { ankiCards: true },
       {
+        outputLanguage: "en",
         sessionApiKey: temporaryKey,
         sessionKimiRegion: "global",
       },
@@ -1254,7 +1365,7 @@ describe("LectureWeaver client workflow", () => {
       processed,
       { provider: "deepseek", model: "deepseek-v4-pro" },
       { ankiCards: true },
-      { sessionApiKey: temporaryKey },
+      { outputLanguage: "en", sessionApiKey: temporaryKey },
     );
     expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
   });
@@ -1299,6 +1410,7 @@ describe("LectureWeaver client workflow", () => {
         model: "deepseek-v4-pro",
       },
       { ankiCards: true },
+      { outputLanguage: "en" },
     );
     expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
     expect(
@@ -1391,6 +1503,7 @@ describe("LectureWeaver client workflow", () => {
       processed,
       { provider: "deepseek", model: "deepseek-v4-pro" },
       { ankiCards: false },
+      { outputLanguage: "en" },
     );
     expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "Anki cards · 0" }));
@@ -1534,6 +1647,7 @@ describe("LectureWeaver client workflow", () => {
       processed,
       { provider: "deepseek", model: "deepseek-v4-pro" },
       { ankiCards: false },
+      { outputLanguage: "en" },
     );
     expect(mockProcessSourceFiles).toHaveBeenCalledTimes(1);
   });
@@ -1629,6 +1743,7 @@ describe("LectureWeaver client workflow", () => {
         model: "kimi-k3",
       },
       { ankiCards: true },
+      { outputLanguage: "en" },
     );
     expect(mockProcessSourceFiles).toHaveBeenCalledTimes(1);
   });

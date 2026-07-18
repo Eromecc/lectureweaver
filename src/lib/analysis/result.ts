@@ -1,6 +1,7 @@
 import type {
   AnalysisOutputOptions,
   ModelAnalysis,
+  OutputLanguage,
   ProviderId,
   SourceChunk,
 } from "@/domain";
@@ -28,6 +29,7 @@ export type AnalysisResult = {
   markdown: string;
   enhancedMarkdown: string;
   ankiImportText: string;
+  outputLanguage: OutputLanguage;
   origin: AnalysisOrigin;
 };
 
@@ -36,14 +38,16 @@ export function buildAnalysisResult(
   chunks: SourceChunk[],
   origin: AnalysisOrigin,
   outputs?: AnalysisOutputOptions,
+  outputLanguage: OutputLanguage = "en",
 ): AnalysisResult {
   const hydrated = hydrateAnalysis(analysis, chunks, outputs);
   return {
     hydrated,
     metrics: calculateCoverageMetrics(hydrated.assessments),
-    markdown: generateMarkdownPatch(hydrated),
-    enhancedMarkdown: generateEnhancedNotesMarkdown(hydrated),
-    ankiImportText: generateAnkiImportText(hydrated),
+    markdown: generateMarkdownPatch(hydrated, outputLanguage),
+    enhancedMarkdown: generateEnhancedNotesMarkdown(hydrated, outputLanguage),
+    ankiImportText: generateAnkiImportText(hydrated, outputLanguage),
+    outputLanguage,
     origin,
   };
 }

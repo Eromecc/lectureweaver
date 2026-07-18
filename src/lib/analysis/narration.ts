@@ -1,4 +1,43 @@
+import type { OutputLanguage } from "@/domain";
+
 import type { HydratedAnalysis } from "./hydration";
+
+const NARRATION_LABELS: Readonly<
+  Record<
+    OutputLanguage,
+    {
+      fullGuide: string;
+      studyGuide: string;
+      section: string;
+      learningObjective: string;
+    }
+  >
+> = {
+  en: {
+    fullGuide: "Full study guide",
+    studyGuide: "Study guide",
+    section: "Section",
+    learningObjective: "Learning objective",
+  },
+  "zh-CN": {
+    fullGuide: "完整学习指南",
+    studyGuide: "学习指南",
+    section: "章节",
+    learningObjective: "学习目标",
+  },
+  ja: {
+    fullGuide: "完全な学習ガイド",
+    studyGuide: "学習ガイド",
+    section: "セクション",
+    learningObjective: "学習目標",
+  },
+  ko: {
+    fullGuide: "전체 학습 가이드",
+    studyGuide: "학습 가이드",
+    section: "섹션",
+    learningObjective: "학습 목표",
+  },
+};
 
 export type NarrationScript = {
   id: string;
@@ -55,17 +94,19 @@ function createScript(
 export function buildNarrationScripts(
   analysis: HydratedAnalysis,
   maxCharacters: number,
+  outputLanguage: OutputLanguage = "en",
 ): NarrationScript[] {
+  const labels = NARRATION_LABELS[outputLanguage];
   const sectionPieces = analysis.enhancedNotes.sections.map((section, index) => [
-    `Section ${index + 1}. ${section.heading}`,
-    `Learning objective. ${section.learningObjective}`,
+    `${labels.section} ${index + 1}. ${section.heading}`,
+    `${labels.learningObjective}. ${section.learningObjective}`,
     section.markdown,
   ]);
   const full = createScript(
     "full",
-    "Full study guide",
+    labels.fullGuide,
     [
-      `Study guide. ${analysis.enhancedNotes.title}`,
+      `${labels.studyGuide}. ${analysis.enhancedNotes.title}`,
       analysis.enhancedNotes.overview,
       ...sectionPieces.flat(),
     ],
@@ -74,9 +115,9 @@ export function buildNarrationScripts(
   const sections = analysis.enhancedNotes.sections.map((section, index) =>
     createScript(
       section.id,
-      `Section ${index + 1} · ${section.heading}`,
+      `${labels.section} ${index + 1} · ${section.heading}`,
       [
-        `Study guide. ${analysis.enhancedNotes.title}`,
+        `${labels.studyGuide}. ${analysis.enhancedNotes.title}`,
         ...(sectionPieces[index] ?? []),
       ],
       maxCharacters,

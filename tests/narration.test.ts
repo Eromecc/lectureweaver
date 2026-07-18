@@ -59,6 +59,36 @@ describe("audio study-guide narration", () => {
     expect(scripts.every((script) => script.withinLimit)).toBe(true);
   });
 
+  it("localizes deterministic narration structure in Chinese", () => {
+    const analysis = buildTestAnalysis([
+      {
+        id: "retrieval",
+        title: "Retrieval practice",
+        importance: "core",
+        status: "covered",
+        explanation: "The notes preserve the definition.",
+        evidenceRefs: [
+          { chunkId: "slides:p0001:c01", relevance: "Defines retrieval." },
+          { chunkId: "notes:p0001:c01", relevance: "Preserves retrieval." },
+        ],
+      },
+    ]);
+    const hydrated = hydrateAnalysis(analysis, chunks);
+    const scripts = buildNarrationScripts(hydrated, 4_096, "zh-CN");
+
+    expect(scripts.map((script) => script.label)).toEqual([
+      "完整学习指南",
+      "章节 1 · Retrieval practice",
+    ]);
+    expect(scripts[0]?.text).toContain("学习指南. Synthetic enhanced notes.");
+    expect(scripts[0]?.text).toContain("章节 1. Retrieval practice.");
+    expect(scripts[0]?.text).toContain(
+      "学习目标. Understand Retrieval practice.",
+    );
+    expect(scripts[0]?.text).not.toContain("Study guide.");
+    expect(scripts[0]?.text).not.toContain("Section 1.");
+  });
+
   it("marks oversized scripts unavailable instead of truncating them", () => {
     const analysis = buildTestAnalysis([
       {

@@ -44,14 +44,14 @@ The release serves two entry points:
 6. The app hydrates trusted evidence, calculates score/counts, builds the enhanced-note guide, and assembles deterministic Markdown and Anki text exports.
 7. The user reads the enhanced notes, verifies section evidence, audits individual findings, previews cards, and copies or downloads the generated study materials.
 
-This flow never calls analysis, transcription, or speech services, even when provider keys exist.
+This flow never calls analysis, transcription, or speech services, even when provider keys exist. The checked-in synthetic sources and fixture output remain intentionally English; the live output-language control never pretends to translate or regenerate the fixture.
 
 ### Live analysis of user-selected material
 
 1. The user supplies one lecture source as a text-based PDF, uploaded UTF-8 TXT, or directly pasted text; one UTF-8 Markdown notes file; and either an uploaded UTF-8 TXT transcript or directly pasted transcript text.
 2. The browser validates and parses the raw files/text locally into normalized chunks with structural IDs and locators. Pasted lecture or transcript text follows the same UTF-8 size, normalization, chunking, and locator contract as its uploaded TXT equivalent. A recorded-audio upload may supply the transcript through the separate flow below.
-3. The user chooses a provider/model and whether to create Anki cards. Enhanced notes are always produced.
-4. If the selected provider has either a deployment credential or a valid temporary current-tab credential, the browser posts only the normalized chunks, selected target, and nonsecret credential mode to `/api/analyze`.
+3. The user chooses a provider/model, an output language, and whether to create Anki cards. Enhanced notes are always produced. Output language is strictly one of `en`, `zh-CN`, `ja`, or `ko`; **Follow interface** resolves to the current interface locale for the next request.
+4. If the selected provider has either a deployment credential or a valid temporary current-tab credential, the browser posts only the normalized chunks, selected target, resolved nonsecret output language, and nonsecret credential mode to `/api/analyze`.
 5. The server resolves an allowlisted endpoint and uses exactly the declared credential path. A temporary key is carried only in a bounded same-origin request header; a missing/stripped temporary header never falls back to a deployment key. The client cannot submit an arbitrary base URL or model ID.
 6. The adapter requests a structured analysis and maps provider failures to a stable application error contract.
 7. The result must pass the wire Zod schema, domain Zod schema, uniqueness/reference validation, and evidence/status semantic rules.
@@ -77,6 +77,7 @@ This flow never calls analysis, transcription, or speech services, even when pro
 ### Unconfigured or failed live analysis
 
 - If the selected provider has neither a deployment key nor a valid temporary key, no chunks are sent; valid input displays a local source map and offers **Try demo**.
+- The live-analysis action remains visible while setup is incomplete, but is disabled with a specific readiness reason for missing sources, credential, model/provider selection, or Kimi region.
 - If a provider rejects, times out, rate-limits, truncates, or returns invalid output, the source map remains available and the user can manually retry or choose another ready provider.
 - Live analysis uses nested ceilings of 150 seconds for the upstream provider request, 170 seconds for the browser request, and 180 seconds for the application function. The ordering reserves cleanup and error-response headroom instead of allowing the hosting platform to terminate the outer request first.
 - LectureWeaver does not automatically retry timed-out live analysis. The provider may already have performed billable work even when the application did not receive a valid result, so only an explicit user action starts another paid request.
@@ -96,6 +97,7 @@ This flow never calls analysis, transcription, or speech services, even when pro
 - Extract PDF text by page, lecture/transcript text into independently numbered non-empty paragraphs, and notes into numbered paragraphs with active Markdown heading context.
 - Recognize ATX and Setext headings only outside fenced code blocks.
 - Generate structural chunk IDs and locators from parsed structure, never from fixture or provider output.
+- Output-language instructions apply only to generated human-readable prose. JSON keys, IDs, enum values, chunk references, source names, filenames, trusted locators, code, formulas, and technical identifiers remain verbatim.
 - Validate audio-transcription segment ordering, timestamps, speakers, and text before producing transcript chunk IDs and time-range locators.
 
 ### Provider catalog and configuration
@@ -142,7 +144,7 @@ Zod schemas are the runtime and TypeScript source of truth for:
 - sources: `slides`, `transcript`, `notes`;
 - status: `covered`, `partial`, `missing`, `contradiction`;
 - importance: `core`, `supporting`;
-- chunks, provider catalog, API request/response/error envelopes, transcription segments/results, speech requests, evidence references, assessments, enhanced-note sections, Anki cards, and model analysis.
+- chunks, provider catalog, output-language selection, API request/response/error envelopes, transcription segments/results, speech requests, evidence references, assessments, enhanced-note sections, Anki cards, and model analysis.
 
 IDs must be unique. Covered assessments have no patch. Partial, missing, and contradiction require a nonblank patch. Evidence rules are:
 
@@ -166,7 +168,7 @@ When Anki output is requested, at least one card and coverage of every core asse
 - Include the synthetic **Evidence-Based Study Strategies** files, analysis fixture, and SHA-256 fingerprint manifest.
 - Pass sample assets through the production ingestion pipeline.
 - Accept the fixture only when every ordered normalized source fingerprint matches.
-- Label fixture results as simulated demo analysis.
+- Label fixture results as simulated demo analysis and identify the included study-pack fixture as English regardless of the live output-language selection.
 - Never use the fixture for arbitrary or mismatched files or as a silent fallback for a live failure.
 
 ### Coverage and generated study materials
@@ -188,8 +190,9 @@ When speech is requested for a live result, derive narration from the validated 
 ### Presentation and states
 
 - Keep **Try demo** prominent and usable without configuration.
-- Provide accessible provider/model controls with deployment-configured, temporary-key-ready, and local-only labeling, plus masked/clearable key inputs and explicit Kimi region selection.
-- Provide complete English, Simplified Chinese, Japanese, and Korean interface catalogs while preserving source text, provider/model IDs, filenames, and generated study content verbatim.
+- Provide accessible provider/model controls with deployment-configured, temporary-key-ready, and local-only labeling, plus masked/clearable key inputs and explicit Kimi region selection. Keep the live-analysis action visible; disable it with an accessible readiness reason until all prerequisites are satisfied.
+- Provide complete English, Simplified Chinese, Japanese, and Korean interface catalogs. Provide an independent live output-language selector for `en`, `zh-CN`, `ja`, and `ko`, defaulting to **Follow interface**. Changing it affects the next live analysis and never retroactively translates an existing result.
+- Preserve source text, provider/model IDs, filenames, chunk references, and evidence locators verbatim even when generated explanations and study content use another selected language.
 - Explain that PDF/TXT/Markdown plus pasted lecture and transcript text stay local, while recorded-audio bytes are transmitted to OpenAI only after explicit disclosure and confirmation; normalized chunks are transmitted only for explicitly requested live analysis.
 - Distinguish local extraction, audio upload/transcription, live model analysis, speech generation, simulated demo analysis, and source-map-only results honestly.
 - Display score, counts, enhanced notes with a jump-link table of contents, audit filters, changes-only Markdown, Anki previews, audio playback/download, evidence dialogs/sheets, copy feedback, and downloads.
@@ -233,6 +236,7 @@ The release succeeds when:
 - a production build passes without environment variables;
 - PDF/TXT/Markdown files and pasted lecture/transcript text parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
 - each deployment-configured or temporary-key-ready provider can produce a validated result through its documented adapter contract;
+- each live provider receives the resolved `en`, `zh-CN`, `ja`, or `ko` output language, while existing results and the English fixture remain unchanged when the selection changes;
 - malformed, truncated, refused, or semantically invalid provider output fails closed;
 - evidence metadata comes only from freshly parsed chunks;
 - score, counts, ordering, trusted evidence, Markdown assembly, and Anki export remain deterministic across demo and live results;

@@ -112,6 +112,23 @@ describe("Anki text export", () => {
     expect(generateAnkiImportText(hydrated)).toBe(exported);
   });
 
+  it("localizes the trusted source label in Chinese", () => {
+    const hydrated = hydrateAnalysis(
+      analysisWithCard("什么是检索练习？", "先作答，再核对来源。"),
+      chunks,
+      { ankiCards: true },
+    );
+
+    const exported = generateAnkiImportText(hydrated, "zh-CN");
+    const lines = exported.trimEnd().split("\n");
+    const fields = parseQuotedTsvRow(lines[4] ?? "");
+
+    expect(fields[1]).toContain(
+      "先作答，再核对来源。<br><br>来源: lecture&lt;script&gt;.pdf · Page 1",
+    );
+    expect(fields[1]).not.toContain("<br><br>Source:");
+  });
+
   it("returns only import metadata when card generation is disabled", () => {
     const analysis = buildTestAnalysis(
       [

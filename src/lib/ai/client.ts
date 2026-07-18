@@ -6,6 +6,7 @@ import {
   type AnalysisTarget,
   type AnalyzeErrorCode,
   type KimiRegion,
+  type OutputLanguage,
 } from "@/domain";
 import { buildAnalysisResult, type AnalysisResult } from "@/lib/analysis";
 import type { ProcessedSources } from "@/lib/extraction";
@@ -33,6 +34,7 @@ export type LiveAnalysisRequestOptions = {
   fetchImpl?: typeof fetch;
   sessionApiKey?: string;
   sessionKimiRegion?: KimiRegion;
+  outputLanguage?: OutputLanguage;
 };
 
 type LiveAnalysisRequestInput = typeof fetch | LiveAnalysisRequestOptions;
@@ -40,13 +42,15 @@ type LiveAnalysisRequestInput = typeof fetch | LiveAnalysisRequestOptions;
 function resolveRequestOptions(
   input: LiveAnalysisRequestInput | undefined,
 ): Required<Pick<LiveAnalysisRequestOptions, "fetchImpl">> &
+  Required<Pick<LiveAnalysisRequestOptions, "outputLanguage">> &
   Pick<LiveAnalysisRequestOptions, "sessionApiKey" | "sessionKimiRegion"> {
   return typeof input === "function"
-    ? { fetchImpl: input }
+    ? { fetchImpl: input, outputLanguage: "en" }
     : {
         fetchImpl: input?.fetchImpl ?? fetch,
         sessionApiKey: input?.sessionApiKey,
         sessionKimiRegion: input?.sessionKimiRegion,
+        outputLanguage: input?.outputLanguage ?? "en",
       };
 }
 
@@ -65,7 +69,7 @@ export async function requestLiveAnalysis(
   outputs: AnalysisOutputOptions,
   input?: LiveAnalysisRequestInput,
 ): Promise<AnalysisResult> {
-  const { fetchImpl, sessionApiKey, sessionKimiRegion } =
+  const { fetchImpl, sessionApiKey, sessionKimiRegion, outputLanguage } =
     resolveRequestOptions(input);
   let credentialHeaders: Record<string, string>;
   try {
@@ -85,6 +89,7 @@ export async function requestLiveAnalysis(
   const request = AnalyzeRequestSchema.safeParse({
     ...target,
     credentialMode,
+    outputLanguage,
     ...(target.provider === "kimi" && credentialMode === "session"
       ? { kimiRegion: sessionKimiRegion }
       : {}),
@@ -195,5 +200,6 @@ export async function requestLiveAnalysis(
       model: parsed.data.model,
     },
     outputs,
+    outputLanguage,
   );
 }
