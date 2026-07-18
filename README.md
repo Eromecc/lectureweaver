@@ -1,6 +1,6 @@
 # LectureWeaver
 
-LectureWeaver turns lecture slides, an uploaded or pasted transcript (or uploaded lecture recording), and a student's existing notes into an evidence-grounded study pack. It audits coverage, rebuilds the notes into a clearer and more complete learning guide, and can create Anki-ready cards and a downloadable audio study guide. Every generated artifact remains traceable to trusted source locators.
+LectureWeaver turns a lecture source (PDF, uploaded TXT, or pasted text), an uploaded or pasted transcript (or uploaded lecture recording), and a student's existing notes into an evidence-grounded study pack. It audits coverage, rebuilds the notes into a clearer and more complete learning guide, and can create Anki-ready cards and a downloadable audio study guide. Every generated artifact remains traceable to trusted page, paragraph, or time-range locators.
 
 The current release includes a deterministic no-key sample demo plus optional live analysis with OpenAI, DeepSeek, or Kimi. Live requests can use either a deployment-managed key or a temporary key entered for the current browser tab; OpenAI can also transcribe an uploaded recording into timestamped transcript chunks and turn validated enhanced notes into playable, downloadable speech. The interface is available in English, Simplified Chinese, Japanese, and Korean. The demo exercises the text-based ingestion, validation, evidence, scoring, enhanced-note, and Anki-export pipeline and never needs an API key.
 
@@ -57,9 +57,9 @@ All environment keys are optional and server-only. Never prefix them with `NEXT_
 
 An invalid nonblank `KIMI_REGION` fails closed: Kimi is shown as unconfigured and no source text or key is sent to either regional endpoint.
 
-Choose a provider/model and supply either its temporary key or deployment configuration before selecting slides, notes, and an uploaded/pasted transcript or recorded-audio file. If the provider is not ready, LectureWeaver keeps the local source map and sends nothing. A failed live request also preserves the parsed source map so the user can retry, switch providers, or use the demo.
+Choose a provider/model and supply either its temporary key or deployment configuration before selecting a PDF/TXT lecture source or pasting lecture text, adding notes, and supplying an uploaded/pasted transcript or recorded-audio file. If the provider is not ready, LectureWeaver keeps the local source map and sends nothing. A failed live request also preserves the parsed source map so the user can retry, switch providers, or use the demo.
 
-Uploaded TXT and directly pasted transcripts are parsed locally through the same UTF-8 validation, normalization, chunking, and locator pipeline. Recorded audio is different: after an explicit disclosure and user action, its raw bytes cross `POST /api/transcribe` and are sent to OpenAI for transcription. The returned speaker-aware time segments are validated and converted into the same trusted `transcript` chunk shape used by the existing evidence pipeline. LectureWeaver does not persist or log the audio or transcript. This release accepts completed uploads only; it does not access the microphone or perform realtime recording.
+Uploaded TXT and directly pasted text are parsed locally through the same UTF-8 validation, normalization, chunking, and locator pipeline for both lecture and transcript sources. Recorded audio is different: after an explicit disclosure and user action, its raw bytes cross `POST /api/transcribe` and are sent to OpenAI for transcription. The returned speaker-aware time segments are validated and converted into the same trusted `transcript` chunk shape used by the existing evidence pipeline. LectureWeaver does not persist or log the audio or transcript. This release accepts completed uploads only; it does not access the microphone or perform realtime recording.
 
 `/api/transcribe` accepts bounded multipart uploads in FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, or WebM form. The browser checks extension, MIME type, and size early; the server repeats those checks and requires the file signature to identify the same format family. OpenAI currently permits transcription uploads up to 25 MB, but this Vercel-oriented build deliberately caps the audio file at **4,000,000 bytes** and the complete multipart body at **4,250,000 bytes** to stay below Vercel's 4.5 MB Function payload limit. Larger recordings are rejected with recovery guidance; they are never silently truncated or automatically split. See the official [OpenAI transcription API reference](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create), [speech-to-text guide](https://developers.openai.com/api/docs/guides/speech-to-text), and [Vercel Function limits](https://vercel.com/docs/functions/limitations#request-body-size).
 
@@ -70,7 +70,7 @@ ChatGPT and Codex subscriptions do **not** fund analysis, transcription, or spee
 ## Data flow and trust boundary
 
 ```text
-PDF + Markdown + (uploaded/pasted transcript or recorded audio)
+(PDF/TXT/pasted lecture text) + Markdown + (uploaded/pasted transcript or recorded audio)
           │                         │
           │                         └── consent ──► /api/transcribe ──► OpenAI
           │                                                  │
@@ -86,7 +86,7 @@ PDF + Markdown + (uploaded/pasted transcript or recorded audio)
             trusted evidence + notes/Anki ────┴──► optional OpenAI speech
 ```
 
-- Raw PDF, TXT, pasted transcript text, and Markdown are parsed in the browser and are never posted as files to `/api/analyze`. An uploaded recording is sent only through `POST /api/transcribe` after the interface discloses that transmission and the user explicitly starts it.
+- Raw PDF, uploaded/pasted lecture text, uploaded/pasted transcript text, and Markdown are parsed in the browser and are never posted as files to `/api/analyze`. An uploaded recording is sent only through `POST /api/transcribe` after the interface discloses that transmission and the user explicitly starts it.
 - A live request sends normalized text chunks, including their structural IDs and trusted locators. Those chunks contain source text, so users should treat live analysis as a transmission to the selected AI provider.
 - Transcription segments become `transcript` chunks with validated, timestamp-based locators. Later analysis may reference their chunk IDs but cannot invent or replace the speaker, time range, filename, or excerpt.
 - Provider output may supply structured assessments, enhanced-note prose, card prompts/answers, chunk IDs, and relevance. It cannot supply trusted filenames, locators, heading paths, excerpts, export tags, or source citations; those are hydrated or derived by the application.
@@ -116,10 +116,10 @@ Official contract and model references:
 
 ## Extraction and demo integrity
 
-- PDF.js extracts text page by page in the browser.
-- TXT content becomes numbered paragraphs.
+- PDF.js extracts PDF lecture text page by page in the browser.
+- Uploaded or pasted lecture text becomes numbered `slides` paragraphs with application-owned structural IDs; uploaded or pasted transcript text becomes separately numbered `transcript` paragraphs.
 - Markdown keeps numbered paragraph locators and active ATX or Setext heading paths outside fenced code blocks.
-- Uploaded TXT and pasted transcript text become numbered structural transcript chunks. An uploaded completed recording may replace them; OpenAI transcription produces speaker-labeled segments with start/end times that LectureWeaver validates and turns into structural transcript chunks with human-readable time locators and speaker-labeled excerpts before analysis.
+- Uploaded TXT and pasted lecture text become numbered structural `slides` chunks; uploaded TXT and pasted transcript text become separately numbered structural `transcript` chunks. An uploaded completed recording may replace the transcript text; OpenAI transcription produces speaker-labeled segments with start/end times that LectureWeaver validates and turns into structural transcript chunks with human-readable time locators and speaker-labeled excerpts before analysis.
 - Limits are 10 MiB for PDF, 1 MiB for each text file, 4,000,000 bytes for an audio upload, 120,000 normalized characters total, 100 chunks, 1,800 characters per chunk, and 4,096 narration characters per speech request. Input is rejected rather than silently truncated.
 - The sample fixture contains chunk references, not trusted display metadata.
 - The fixture is accepted only when ordered normalized fingerprints match the checked-in sample manifest. Arbitrary uploads can never receive the sample result.
@@ -201,7 +201,7 @@ Requests using deployment keys spend the deployment owner's provider credits; te
 
 ## Current limitations
 
-- Slides remain limited to text-based PDFs and notes to UTF-8 Markdown. An uploaded/pasted UTF-8 transcript or supported completed-audio upload supplies the lecture transcript; OCR and PPTX remain out of scope.
+- The lecture source accepts a text-based PDF, uploaded UTF-8 TXT, or directly pasted UTF-8 text. Notes remain UTF-8 Markdown, while an uploaded/pasted UTF-8 transcript or supported completed-audio upload supplies spoken context. OCR and PPTX remain out of scope; an unreadable PDF can be replaced with its exported or copied text.
 - Audio uses OpenAI only in this release. Recordings above 4,000,000 bytes, automatic long-recording splitting, live microphone capture, realtime transcription, in-browser recording, custom/cloned voices, and podcast-style multi-speaker generation are out of scope.
 - Results are not saved and disappear on refresh.
 - Anki export targets the Basic note type through a UTF-8 text import; it does not create `.apkg` packages, cloze cards, media, or schedules.
@@ -211,7 +211,7 @@ Requests using deployment keys spend the deployment owner's provider credits; te
 
 ## Privacy
 
-PDF, TXT, pasted transcript text, and Markdown stay in browser memory. The no-key demo makes no model, transcription, or speech request. Live analysis sends normalized text chunks to the selected provider. A temporary API key exists only in current-page memory, crosses the LectureWeaver function in a bounded secret header, and is forwarded to that allowlisted provider; LectureWeaver does not persist it. When the user explicitly chooses audio transcription, the recorded-audio bytes cross the application server and are sent to OpenAI; optional speech generation sends the validated narration text to OpenAI and returns generated audio. The application does not persist or log those files, transcripts, chunks, temporary keys, or generated audio, but the browser/device, hosting layer, extensions, and each provider's own data-handling terms remain relevant. Use synthetic or non-sensitive material unless the deployment and chosen provider are approved for the data involved.
+PDF, uploaded or pasted lecture/transcript text, and Markdown stay in browser memory. The no-key demo makes no model, transcription, or speech request. Live analysis sends normalized text chunks to the selected provider. A temporary API key exists only in current-page memory, crosses the LectureWeaver function in a bounded secret header, and is forwarded to that allowlisted provider; LectureWeaver does not persist it. When the user explicitly chooses audio transcription, the recorded-audio bytes cross the application server and are sent to OpenAI; optional speech generation sends the validated narration text to OpenAI and returns generated audio. The application does not persist or log those files, transcripts, chunks, temporary keys, or generated audio, but the browser/device, hosting layer, extensions, and each provider's own data-handling terms remain relevant. Use synthetic or non-sensitive material unless the deployment and chosen provider are approved for the data involved.
 
 ## License
 

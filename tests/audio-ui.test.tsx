@@ -295,7 +295,10 @@ describe("LectureWeaver audio workflow", () => {
     expect(await screen.findByText("pasted-transcript.txt")).toBeVisible();
     expect(screen.getByText(/pasted text ready/)).toBeVisible();
 
-    await user.upload(screen.getByLabelText("Choose slides file"), sourceFiles.slides);
+    await user.upload(
+      screen.getByLabelText("Choose lecture PDF file"),
+      sourceFiles.slides,
+    );
     await user.upload(
       screen.getByLabelText("Choose existing notes file"),
       sourceFiles.notes,
@@ -471,7 +474,10 @@ describe("LectureWeaver audio workflow", () => {
     expect(transcriptBlob).toBeInstanceOf(Blob);
     await expect((transcriptBlob as Blob).text()).resolves.toBe(transcription.text);
 
-    await user.upload(screen.getByLabelText("Choose slides file"), sourceFiles.slides);
+    await user.upload(
+      screen.getByLabelText("Choose lecture PDF file"),
+      sourceFiles.slides,
+    );
     await user.upload(
       screen.getByLabelText("Choose existing notes file"),
       sourceFiles.notes,

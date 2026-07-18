@@ -84,7 +84,7 @@ export async function extractPdfPages(file: File): Promise<PdfPageText[]> {
     throw new SourceProcessingError(
       "invalid_pdf",
       "slides",
-      "The PDF could not be read. Try a text-based, non-encrypted PDF.",
+      "This PDF passed the basic file checks, but its pages could not be extracted. Re-export it as a text-based PDF, or switch to lecture TXT or pasted text.",
     );
   }
 }

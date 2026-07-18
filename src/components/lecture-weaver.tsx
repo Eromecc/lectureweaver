@@ -79,10 +79,15 @@ import {
   normalizeSourceText,
   processSourceFiles,
   processSourceFilesWithTranscriptChunks,
+  readLectureTextFile,
   readTranscriptFile,
   SourceProcessingError,
 } from "@/lib/extraction";
-import type { ProcessedSources, SourceFiles } from "@/lib/extraction";
+import type {
+  ProcessedSources,
+  ProcessingErrorCode,
+  SourceFiles,
+} from "@/lib/extraction";
 import {
   createUiTranslator,
   translateUiPlural,
@@ -116,10 +121,13 @@ type PipelineErrorState = {
   kind: "processing" | "live" | "demo";
   message: string;
   retryable: boolean;
+  sourceType?: SourceType;
+  processingCode?: ProcessingErrorCode;
 };
 type IssueStatus = Exclude<AssessmentStatus, "covered">;
 type IssueFilter = "all" | IssueStatus;
 type ResultView = "notes" | "audit" | "changes" | "anki" | "audio";
+type LectureSourceMode = "pdf" | "text" | "paste";
 type SpokenSourceMode = "transcript" | "paste" | "audio";
 type TranscriptInputKind = "upload" | "paste";
 type PastedTranscriptState =
@@ -127,6 +135,7 @@ type PastedTranscriptState =
   | { status: "validating" }
   | { status: "ready" }
   | { status: "error"; message: string };
+type PastedLectureState = PastedTranscriptState;
 type AudioTranscriptionState =
   | { status: "idle" }
   | { status: "validating" }
@@ -163,7 +172,7 @@ const SOURCE_SPECS: readonly SourceSpec[] = [
     eyebrow: "01 / Lecture source",
     title: "Slides",
     detail: "Text-based PDF",
-    accept: ".pdf,application/pdf",
+    accept: ".pdf,.txt,application/pdf,text/plain",
     limit: "Up to 10 MiB",
     icon: Presentation,
   },
@@ -233,6 +242,13 @@ const STATUS_RANK: Record<IssueStatus, number> = {
   contradiction: 2,
 };
 
+const PDF_TEXT_RECOVERY_CODES: ReadonlySet<ProcessingErrorCode> = new Set([
+  "invalid_pdf",
+  "encrypted_pdf",
+  "empty_source",
+  "too_many_pages",
+]);
+
 function issueLabel(status: IssueStatus, t: UiTranslator): string {
   if (status === "missing") return t("review.missingExplanation");
   if (status === "partial") return t("review.partiallyCovered");
@@ -277,6 +293,9 @@ function processingError(error: unknown): PipelineErrorState {
         ? error.message
         : "LectureWeaver could not process those files. Please try again.",
     retryable: false,
+    ...(error instanceof SourceProcessingError
+      ? { sourceType: error.sourceType, processingCode: error.code }
+      : {}),
   };
 }
 
@@ -463,6 +482,245 @@ type FileCardProps = {
   t: UiTranslator;
   locale: UiLocale;
 };
+
+function LectureSourceCard({
+  mode,
+  file,
+  pastedLecture,
+  pastedLectureState,
+  inputKey,
+  disabled,
+  onModeChange,
+  onFileSelect,
+  onPastedLectureChange,
+  onUsePastedLecture,
+  onClearPastedLecture,
+  t,
+  locale,
+}: {
+  mode: LectureSourceMode;
+  file?: File;
+  pastedLecture: string;
+  pastedLectureState: PastedLectureState;
+  inputKey: number;
+  disabled: boolean;
+  onModeChange: (mode: LectureSourceMode) => void;
+  onFileSelect: (mode: Exclude<LectureSourceMode, "paste">, file: File) => void;
+  onPastedLectureChange: (value: string) => void;
+  onUsePastedLecture: () => void;
+  onClearPastedLecture: () => void;
+  t: UiTranslator;
+  locale: UiLocale;
+}) {
+  const pdfInputId = `source-slides-pdf-${inputKey}`;
+  const textInputId = `source-slides-text-${inputKey}`;
+  const pasteInputId = `source-slides-paste-${inputKey}`;
+  const uploadMode = mode === "pdf" || mode === "text" ? mode : null;
+  const inputId = mode === "text" ? textInputId : pdfInputId;
+  const validatingPaste = pastedLectureState.status === "validating";
+
+  const selectFile = (
+    selectedMode: Exclude<LectureSourceMode, "paste">,
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const selected = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (selected) onFileSelect(selectedMode, selected);
+  };
+
+  const dropFile = (
+    selectedMode: Exclude<LectureSourceMode, "paste">,
+    event: DragEvent<HTMLLabelElement>,
+  ) => {
+    event.preventDefault();
+    if (disabled) return;
+    const selected = event.dataTransfer.files[0];
+    if (!selected) return;
+    const lowerName = selected.name.toLowerCase();
+    const actualMode = lowerName.endsWith(".txt")
+      ? "text"
+      : lowerName.endsWith(".pdf")
+        ? "pdf"
+        : selectedMode;
+    onFileSelect(actualMode, selected);
+  };
+
+  return (
+    <article className="group relative flex min-h-60 flex-col rounded-[26px] border border-[#14213d]/10 bg-white/70 p-5 transition hover:border-[#2f837c]/35 hover:shadow-card sm:p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#2f837c]">
+            {t("source.slidesEyebrow")}
+          </p>
+          <h3 className="mt-2 text-2xl font-bold tracking-[-0.04em]">
+            {t("lecture.title")}
+          </h3>
+        </div>
+        <span className="grid size-11 place-items-center rounded-2xl bg-[#dcece8] text-[#1f625e] transition group-hover:rotate-3">
+          <Presentation className="size-5" aria-hidden="true" />
+        </span>
+      </div>
+
+      <div
+        className="mt-5 grid grid-cols-3 gap-1 rounded-xl bg-[#eee9dd] p-1"
+        role="group"
+        aria-label={t("lecture.modeAria")}
+      >
+        {([
+          ["pdf", t("lecture.pdfMode")],
+          ["text", t("lecture.textMode")],
+          ["paste", t("lecture.pasteMode")],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={mode === value}
+            disabled={disabled}
+            onClick={() => onModeChange(value)}
+            className={`min-h-9 min-w-0 rounded-lg px-1.5 text-xs font-bold leading-4 transition sm:px-3 ${mode === value ? "bg-white text-[#14213d] shadow-sm" : "text-[#53627b] hover:bg-white/60"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {uploadMode !== null ? (
+        file ? (
+          <div className="mt-5 flex flex-1 flex-col justify-between rounded-2xl border border-[#2f837c]/20 bg-[#edf6f3] p-4">
+            <div className="flex items-start gap-3">
+              <CircleCheck className="mt-0.5 size-5 shrink-0 text-[#2f837c]" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold" title={file.name}>{file.name}</p>
+                <p className="mt-1 text-xs text-[#53627b]">
+                  {formatBytes(file.size)} · {t("source.readyLocally")}
+                </p>
+              </div>
+            </div>
+            <label
+              htmlFor={inputId}
+              className="mt-5 cursor-pointer text-xs font-bold text-[#1f625e] underline decoration-[#2f837c]/30 underline-offset-4"
+            >
+              {t("source.replaceFile")}
+            </label>
+          </div>
+        ) : (
+          <label
+            htmlFor={inputId}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => dropFile(uploadMode, event)}
+            className="mt-5 flex flex-1 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[#14213d]/20 bg-[#f7f4ec]/65 px-4 py-5 text-center transition hover:border-[#2f837c] hover:bg-[#edf6f3]"
+          >
+            <Upload className="size-5 text-[#2f837c]" aria-hidden="true" />
+            <span className="mt-2 text-sm font-bold">
+              {uploadMode === "pdf" ? t("lecture.choosePdf") : t("lecture.chooseText")}
+            </span>
+            <span className="mt-1 text-xs leading-5 text-[#53627b]">
+              {uploadMode === "pdf" ? t("lecture.pdfDetail") : t("lecture.textDetail")}
+            </span>
+          </label>
+        )
+      ) : (
+        <div className="mt-5 flex flex-1 flex-col gap-3">
+          <div>
+            <label htmlFor={pasteInputId} className="text-xs font-bold text-[#14213d]">
+              {t("lecture.pasteLabel")}
+            </label>
+            <textarea
+              id={pasteInputId}
+              value={pastedLecture}
+              disabled={disabled || validatingPaste}
+              onChange={(event) => onPastedLectureChange(event.currentTarget.value)}
+              placeholder={t("lecture.pastePlaceholder")}
+              aria-invalid={pastedLectureState.status === "error"}
+              aria-describedby={`${pasteInputId}-description ${pasteInputId}-count`}
+              className="mt-2 min-h-32 w-full resize-y rounded-2xl border border-[#14213d]/15 bg-white px-4 py-3 text-sm leading-6 text-[#14213d] outline-none transition placeholder:text-[#53627b]/70 focus:border-[#2f837c] focus:ring-2 focus:ring-[#2f837c]/20 disabled:cursor-wait disabled:opacity-60"
+            />
+            <div className="mt-2 flex flex-wrap items-start justify-between gap-2 text-[11px] leading-4 text-[#53627b]">
+              <p id={`${pasteInputId}-description`} className="max-w-sm">
+                {t("lecture.pasteDescription")}
+              </p>
+              <p id={`${pasteInputId}-count`} className="shrink-0 tabular-nums">
+                {t("lecture.pasteCharacters", {
+                  count: pastedLecture.length.toLocaleString(locale),
+                })} · {formatBytes(new Blob([pastedLecture]).size)}
+              </p>
+            </div>
+          </div>
+
+          {pastedLectureState.status === "error" && (
+            <div className="rounded-xl border border-[#ef6b5a]/35 bg-[#fff0ec] p-3 text-xs leading-5 text-[#a83f32]" role="alert">
+              <p className="font-bold">{t("lecture.pasteErrorTitle")}</p>
+              <p className="mt-1">{pastedLectureState.message}</p>
+            </div>
+          )}
+
+          {pastedLectureState.status === "ready" && file && (
+            <div className="flex items-start gap-3 rounded-xl border border-[#2f837c]/20 bg-[#edf6f3] p-3">
+              <CircleCheck className="mt-0.5 size-4 shrink-0 text-[#2f837c]" aria-hidden="true" />
+              <p className="min-w-0 text-xs leading-5 text-[#53627b]">
+                <span className="font-bold text-[#14213d]">{file.name}</span> · {formatBytes(file.size)} · {t("lecture.pasteReadySuffix")}
+              </p>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={disabled || validatingPaste}
+              onClick={onUsePastedLecture}
+              className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-4 text-xs font-bold text-white transition hover:bg-[#223252] disabled:cursor-wait disabled:opacity-50"
+            >
+              {validatingPaste && <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />}
+              {validatingPaste
+                ? t("lecture.pasteLoading")
+                : pastedLectureState.status === "ready"
+                  ? t("lecture.pasteReplace")
+                  : t("lecture.pasteUse")}
+            </button>
+            {pastedLecture.length > 0 && (
+              <button
+                type="button"
+                disabled={disabled || validatingPaste}
+                onClick={onClearPastedLecture}
+                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#14213d]/15 bg-white px-3 text-xs font-bold text-[#14213d] hover:bg-[#f7f4ec] disabled:opacity-50"
+              >
+                {t("lecture.pasteClear")}
+              </button>
+            )}
+          </div>
+          <p className="sr-only" aria-live="polite">
+            {validatingPaste
+              ? t("lecture.pasteLoading")
+              : pastedLectureState.status === "ready"
+                ? t("lecture.pasteReadyAnnouncement")
+                : ""}
+          </p>
+        </div>
+      )}
+
+      <input
+        key={`lecture-pdf-${inputKey}`}
+        id={pdfInputId}
+        type="file"
+        className="sr-only"
+        accept=".pdf,application/pdf"
+        disabled={disabled}
+        onChange={(event) => selectFile("pdf", event)}
+        aria-label={t("lecture.choosePdfAria")}
+      />
+      <input
+        key={`lecture-text-${inputKey}`}
+        id={textInputId}
+        type="file"
+        className="sr-only"
+        accept=".txt,text/plain"
+        disabled={disabled}
+        onChange={(event) => selectFile("text", event)}
+        aria-label={t("lecture.chooseTextAria")}
+      />
+    </article>
+  );
+}
 
 function FileCard({ spec, file, inputKey, disabled, onSelect, t, locale }: FileCardProps) {
   const Icon = spec.icon;
@@ -1392,17 +1650,27 @@ function PipelineErrorPanel({
   error,
   onRetryLive,
   onRetryDemo,
+  onUseLectureText,
+  allowLectureTextRecovery,
   t,
   locale,
 }: {
   error: PipelineErrorState;
   onRetryLive: () => void;
   onRetryDemo: () => void;
+  onUseLectureText: () => void;
+  allowLectureTextRecovery: boolean;
   t: UiTranslator;
   locale: UiLocale;
 }) {
   const liveFailure = error.kind === "live";
   const demoFailure = error.kind === "demo";
+  const lectureSourceFailure =
+    allowLectureTextRecovery &&
+    error.kind === "processing" &&
+    error.sourceType === "slides" &&
+    error.processingCode !== undefined &&
+    PDF_TEXT_RECOVERY_CODES.has(error.processingCode);
 
   return (
     <section className="rounded-[24px] border border-[#ef6b5a]/35 bg-[#fff0ec] p-6" role="alert">
@@ -1423,16 +1691,23 @@ function PipelineErrorPanel({
             </p>
           </div>
         </div>
-        {liveFailure && error.retryable && (
-          <button type="button" onClick={onRetryLive} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
-            <RotateCcw className="size-4" /> {t("error.retry")}
-          </button>
-        )}
-        {demoFailure && (
-          <button type="button" onClick={onRetryDemo} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
-            <RotateCcw className="size-4" /> {locale === "en" ? "Retry included demo" : t("error.retryDemo")}
-          </button>
-        )}
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {lectureSourceFailure && (
+            <button type="button" onClick={onUseLectureText} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white hover:bg-[#1f625e]">
+              <FileText className="size-4" aria-hidden="true" /> {t("error.useLectureText")}
+            </button>
+          )}
+          {liveFailure && error.retryable && (
+            <button type="button" onClick={onRetryLive} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
+              <RotateCcw className="size-4" /> {t("error.retry")}
+            </button>
+          )}
+          {demoFailure && (
+            <button type="button" onClick={onRetryDemo} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
+              <RotateCcw className="size-4" /> {locale === "en" ? "Retry included demo" : t("error.retryDemo")}
+            </button>
+          )}
+        </div>
       </div>
     </section>
   );
@@ -2571,6 +2846,11 @@ export function LectureWeaver(
   const [resultView, setResultView] = useState<ResultView>("notes");
   const [evidenceSelection, setEvidenceSelection] = useState<EvidenceDrawerSelection | null>(null);
   const [inputKey, setInputKey] = useState(0);
+  const [lectureSourceMode, setLectureSourceMode] =
+    useState<LectureSourceMode>("pdf");
+  const [pastedLecture, setPastedLecture] = useState("");
+  const [pastedLectureState, setPastedLectureState] =
+    useState<PastedLectureState>({ status: "idle" });
   const [spokenSourceMode, setSpokenSourceMode] = useState<SpokenSourceMode>("transcript");
   const [transcriptInputKind, setTranscriptInputKind] =
     useState<TranscriptInputKind | null>(null);
@@ -2585,12 +2865,15 @@ export function LectureWeaver(
   const sessionProviderKeysRef = useRef<SessionProviderKeys>({});
   const audioSelectionRef = useRef<File | null>(null);
   const transcriptionRequestRef = useRef<AbortController | null>(null);
+  const revealOutputTimerRef = useRef<number | null>(null);
+  const lecturePasteValidationVersionRef = useRef(0);
   const pasteValidationVersionRef = useRef(0);
   const loading = mode === "loading";
   const transcribing = transcriptionState.status === "loading";
   const checkingAudio = transcriptionState.status === "validating";
   const validatingPaste = pastedTranscriptState.status === "validating";
-  const busy = loading || transcribing || checkingAudio || validatingPaste;
+  const validatingLecturePaste = pastedLectureState.status === "validating";
+  const busy = loading || transcribing || checkingAudio || validatingPaste || validatingLecturePaste;
   const ready =
     hasBaseFiles(files) &&
     (spokenSourceMode === "audio"
@@ -2681,6 +2964,10 @@ export function LectureWeaver(
       audioSelectionRef.current = null;
       transcriptionRequestRef.current?.abort();
       transcriptionRequestRef.current = null;
+      if (revealOutputTimerRef.current !== null) {
+        window.clearTimeout(revealOutputTimerRef.current);
+        revealOutputTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -2730,6 +3017,23 @@ export function LectureWeaver(
     resetTranscriptionCredentialError();
   };
 
+  const cancelRevealOutput = () => {
+    if (revealOutputTimerRef.current !== null) {
+      window.clearTimeout(revealOutputTimerRef.current);
+      revealOutputTimerRef.current = null;
+    }
+  };
+
+  const clearPipelineAfterSourceChange = () => {
+    cancelRevealOutput();
+    setProcessed(null);
+    setResult(null);
+    setMode("idle");
+    setError(null);
+    setEvidenceSelection(null);
+    setResultView("notes");
+  };
+
   const updateFile = (sourceType: SourceType, file: File) => {
     setFiles((current) => ({ ...current, [sourceType]: file }));
     if (sourceType === "transcript") {
@@ -2743,16 +3047,100 @@ export function LectureWeaver(
       audioSelectionRef.current = null;
       setTranscriptionState({ status: "idle" });
     }
-    setProcessed(null);
-    setResult(null);
-    setMode("idle");
-    setError(null);
-    setEvidenceSelection(null);
-    setResultView("notes");
+    clearPipelineAfterSourceChange();
+  };
+
+  const chooseLectureSourceMode = (nextMode: LectureSourceMode) => {
+    if (nextMode === lectureSourceMode) return;
+    lecturePasteValidationVersionRef.current += 1;
+    setLectureSourceMode(nextMode);
+    setFiles((current) => {
+      const next = { ...current };
+      delete next.slides;
+      return next;
+    });
+    setPastedLectureState({ status: "idle" });
+    clearPipelineAfterSourceChange();
+  };
+
+  const chooseLectureFile = (
+    nextMode: Exclude<LectureSourceMode, "paste">,
+    file: File,
+  ) => {
+    lecturePasteValidationVersionRef.current += 1;
+    setLectureSourceMode(nextMode);
+    setPastedLecture("");
+    setPastedLectureState({ status: "idle" });
+    updateFile("slides", file);
+  };
+
+  const changePastedLecture = (value: string) => {
+    lecturePasteValidationVersionRef.current += 1;
+    setPastedLecture(value);
+    setPastedLectureState({ status: "idle" });
+    if (lectureSourceMode === "paste") {
+      setFiles((current) => {
+        const next = { ...current };
+        delete next.slides;
+        return next;
+      });
+    }
+    clearPipelineAfterSourceChange();
+  };
+
+  const clearPastedLecture = () => {
+    changePastedLecture("");
+  };
+
+  const acceptPastedLecture = async () => {
+    const rawLecture = pastedLecture;
+    const validationVersion = lecturePasteValidationVersionRef.current + 1;
+    lecturePasteValidationVersionRef.current = validationVersion;
+    setPastedLectureState({ status: "validating" });
+    clearPipelineAfterSourceChange();
+
+    const lectureFile = new File([rawLecture], "pasted-lecture.txt", {
+      type: "text/plain",
+    });
+    try {
+      const validatedText = await readLectureTextFile(lectureFile);
+      if (lecturePasteValidationVersionRef.current !== validationVersion) return;
+      if (normalizeSourceText(validatedText).length === 0) {
+        setPastedLectureState({
+          status: "error",
+          message: t("lecture.pasteEmptyError"),
+        });
+        return;
+      }
+      setFiles((current) => ({ ...current, slides: lectureFile }));
+      setLectureSourceMode("paste");
+      setPastedLectureState({ status: "ready" });
+    } catch (pasteError: unknown) {
+      if (lecturePasteValidationVersionRef.current !== validationVersion) return;
+      setPastedLectureState({
+        status: "error",
+        message:
+          pasteError instanceof Error
+            ? pasteError.message
+            : t("lecture.pasteEmptyError"),
+      });
+    }
+  };
+
+  const recoverWithLectureText = () => {
+    if (lectureSourceMode !== "paste") {
+      chooseLectureSourceMode("paste");
+    } else {
+      clearPipelineAfterSourceChange();
+    }
+    window.setTimeout(() => {
+      document.getElementById(`source-slides-paste-${inputKey}`)?.focus();
+    }, 0);
   };
 
   const chooseSpokenSourceMode = (nextMode: SpokenSourceMode) => {
     if (nextMode === spokenSourceMode) return;
+    cancelRevealOutput();
     if (nextMode !== "audio") {
       transcriptionRequestRef.current?.abort();
       transcriptionRequestRef.current = null;
@@ -2918,8 +3306,12 @@ export function LectureWeaver(
   };
 
   const revealOutput = () => {
-    window.setTimeout(
+    if (revealOutputTimerRef.current !== null) {
+      window.clearTimeout(revealOutputTimerRef.current);
+    }
+    revealOutputTimerRef.current = window.setTimeout(
       () => {
+        revealOutputTimerRef.current = null;
         const output = outputRef.current;
         if (output === null) return;
         output.focus({ preventScroll: true });
@@ -3081,6 +3473,10 @@ export function LectureWeaver(
     await nextPaint();
     try {
       const demoFiles = await loadDemoFiles();
+      setLectureSourceMode("pdf");
+      setPastedLecture("");
+      lecturePasteValidationVersionRef.current += 1;
+      setPastedLectureState({ status: "idle" });
       setSpokenSourceMode("transcript");
       setTranscriptInputKind("upload");
       setPastedTranscript("");
@@ -3152,22 +3548,30 @@ export function LectureWeaver(
   };
 
   const openAssessmentEvidence = (assessment: HydratedConceptAssessment) => {
+    cancelRevealOutput();
     setEvidenceSelection({ kind: "assessment", assessment });
   };
 
   const openSectionEvidence = (section: HydratedEnhancedNoteSection) => {
+    cancelRevealOutput();
     setEvidenceSelection({ kind: "section", section });
   };
 
   const openCardEvidence = (card: HydratedAnkiCard) => {
+    cancelRevealOutput();
     setEvidenceSelection({ kind: "card", card });
   };
 
   const reset = () => {
+    cancelRevealOutput();
     transcriptionRequestRef.current?.abort();
     transcriptionRequestRef.current = null;
     clearAllSessionProviderKeys();
     setFiles({});
+    setLectureSourceMode("pdf");
+    setPastedLecture("");
+    lecturePasteValidationVersionRef.current += 1;
+    setPastedLectureState({ status: "idle" });
     setSpokenSourceMode("transcript");
     setTranscriptInputKind(null);
     setPastedTranscript("");
@@ -3205,6 +3609,7 @@ export function LectureWeaver(
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#53627b]">{t("upload.description")}</p>
           </div>
           {(Object.keys(files).length > 0 ||
+            pastedLecture.length > 0 ||
             pastedTranscript.length > 0 ||
             audioFile !== null ||
             processed ||
@@ -3219,7 +3624,24 @@ export function LectureWeaver(
 
         <div className="mt-8 grid gap-4 lg:grid-cols-3">
           {SOURCE_SPECS.map((spec) =>
-            spec.sourceType === "transcript" ? (
+            spec.sourceType === "slides" ? (
+              <LectureSourceCard
+                key={spec.sourceType}
+                mode={lectureSourceMode}
+                file={files.slides}
+                pastedLecture={pastedLecture}
+                pastedLectureState={pastedLectureState}
+                inputKey={inputKey}
+                disabled={busy}
+                onModeChange={chooseLectureSourceMode}
+                onFileSelect={chooseLectureFile}
+                onPastedLectureChange={changePastedLecture}
+                onUsePastedLecture={() => void acceptPastedLecture()}
+                onClearPastedLecture={clearPastedLecture}
+                t={t}
+                locale={locale}
+              />
+            ) : spec.sourceType === "transcript" ? (
               <SpokenSourceCard
                 key={spec.sourceType}
                 mode={spokenSourceMode}
@@ -3322,6 +3744,8 @@ export function LectureWeaver(
               error={error}
               onRetryLive={() => void retryLiveAnalysis()}
               onRetryDemo={() => void tryDemo()}
+              onUseLectureText={recoverWithLectureText}
+              allowLectureTextRecovery={lectureSourceMode === "pdf"}
               t={t}
               locale={locale}
             />

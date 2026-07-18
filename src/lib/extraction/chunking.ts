@@ -106,7 +106,7 @@ function sameHeadingPath(left?: string[], right?: string[]): boolean {
 }
 
 function createParagraphChunk(
-  sourceType: Extract<SourceType, "transcript" | "notes">,
+  sourceType: SourceType,
   sourceName: string,
   units: ParagraphUnit[],
   text: string,
@@ -129,7 +129,7 @@ function createParagraphChunk(
 }
 
 function chunkParagraphUnits(
-  sourceType: Extract<SourceType, "transcript" | "notes">,
+  sourceType: SourceType,
   sourceName: string,
   units: ParagraphUnit[],
   maxLength: number,
@@ -183,6 +183,20 @@ export function chunkTranscript(
     .filter(Boolean)
     .map((text, index) => ({ ordinal: index + 1, text }));
   return chunkParagraphUnits("transcript", sourceName, paragraphs, maxLength);
+}
+
+export function chunkLectureText(
+  lectureText: string,
+  sourceName: string,
+  maxLength = MAX_CHUNK_CHARACTERS,
+): SourceChunk[] {
+  const normalized = normalizeSourceText(lectureText);
+  const paragraphs = normalized
+    .split(/\n\s*\n/)
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .map((text, index) => ({ ordinal: index + 1, text }));
+  return chunkParagraphUnits("slides", sourceName, paragraphs, maxLength);
 }
 
 /**

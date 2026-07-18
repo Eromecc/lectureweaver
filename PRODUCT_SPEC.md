@@ -12,7 +12,7 @@ It is not a general summarizer or chatbot. Its core promise is completeness-firs
 
 ## Audience and milestone outcome
 
-The primary user has lecture slides, Markdown notes, and either transcript text or a completed lecture recording, but cannot quickly determine whether the notes preserve important teaching content. Manual comparison and transcription are slow, while ungrounded generation can hide omissions or fabricate support.
+The primary user has a lecture source in PDF or text form, Markdown notes, and either transcript text or a completed lecture recording, but cannot quickly determine whether the notes preserve important teaching content. Manual comparison and transcription are slow, while ungrounded generation can hide omissions or fabricate support.
 
 The release serves two entry points:
 
@@ -28,7 +28,7 @@ The release serves two entry points:
 4. **Repair into action.** The audit must produce a coherent learning guide, not stop at diagnosis.
 5. **Deterministic where possible.** Application code calculates score, counts, ordering, evidence hydration, Markdown assembly, and Anki import formatting.
 6. **Fail closed.** Invalid input or provider output never becomes a plausible-looking result.
-7. **Explicit transmission boundaries.** PDF, uploaded/pasted transcript text, and Markdown parsing stays in the browser. A recorded-audio upload crosses the server/provider boundary only after an explicit disclosure and user action; live analysis sends only normalized chunks. A temporary credential crosses the same-origin application function and is forwarded only to the selected allowlisted provider.
+7. **Explicit transmission boundaries.** PDF, uploaded/pasted lecture text, uploaded/pasted transcript text, and Markdown parsing stays in the browser. A recorded-audio upload crosses the server/provider boundary only after an explicit disclosure and user action; live analysis sends only normalized chunks. A temporary credential crosses the same-origin application function and is forwarded only to the selected allowlisted provider.
 8. **Optional service.** No provider credential is required for the build, source-map flow, or sample demo.
 9. **No hidden persistence.** The release adds no account, database, saved history, analytics, or application-level source storage.
 
@@ -48,8 +48,8 @@ This flow never calls analysis, transcription, or speech services, even when pro
 
 ### Live analysis of user-selected material
 
-1. The user selects one text-based PDF lecture, one UTF-8 Markdown notes file, and either an uploaded UTF-8 TXT transcript or directly pasted transcript text.
-2. The browser validates and parses the raw files/text locally into normalized chunks with structural IDs and locators. Pasted text follows the same UTF-8 size, normalization, chunking, and locator contract as uploaded TXT. A recorded-audio upload may supply the transcript through the separate flow below.
+1. The user supplies one lecture source as a text-based PDF, uploaded UTF-8 TXT, or directly pasted text; one UTF-8 Markdown notes file; and either an uploaded UTF-8 TXT transcript or directly pasted transcript text.
+2. The browser validates and parses the raw files/text locally into normalized chunks with structural IDs and locators. Pasted lecture or transcript text follows the same UTF-8 size, normalization, chunking, and locator contract as its uploaded TXT equivalent. A recorded-audio upload may supply the transcript through the separate flow below.
 3. The user chooses a provider/model and whether to create Anki cards. Enhanced notes are always produced.
 4. If the selected provider has either a deployment credential or a valid temporary current-tab credential, the browser posts only the normalized chunks, selected target, and nonsecret credential mode to `/api/analyze`.
 5. The server resolves an allowlisted endpoint and uses exactly the declared credential path. A temporary key is carried only in a bounded same-origin request header; a missing/stripped temporary header never falls back to a deployment key. The client cannot submit an arbitrary base URL or model ID.
@@ -84,14 +84,14 @@ This flow never calls analysis, transcription, or speech services, even when pro
 
 ### Input, extraction, and limits
 
-- Accept PDF for slides, Markdown (`.md`) for notes, and uploaded TXT, directly pasted text, or a supported completed-audio upload for the transcript source.
+- Accept a PDF, uploaded TXT, or directly pasted text for the lecture source; Markdown (`.md`) for notes; and uploaded TXT, directly pasted text, or a supported completed-audio upload for the transcript source.
 - Validate extension, MIME compatibility, file size, PDF/audio signatures where applicable, and UTF-8/binary safety.
 - Allow recorded-audio extensions/formats FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, and WebM only. The client validates extension, MIME, nonempty content, and size; the server repeats those checks and requires the detected file signature, extension, and MIME type to identify the same format family.
 - Enforce 10 MiB PDF, 1 MiB per text file, 4,000,000 bytes per recorded-audio upload, 120,000 normalized characters total, 100 chunks total, 1,800 characters per chunk, and 4,096 narration characters per speech request.
 - Reject over-limit content instead of truncating it.
 - OpenAI currently supports transcription uploads up to 25 MB, but this deployable build intentionally uses a lower 4,000,000-byte file limit and 4,250,000-byte complete multipart-body limit to stay beneath the [Vercel Function 4.5 MB request-body limit](https://vercel.com/docs/functions/limitations#request-body-size). Automatic segmentation of longer recordings is not implemented.
 - Reject malformed, encrypted, image-only, or textless PDFs with an actionable message; OCR is out of scope.
-- Extract PDF text by page, transcript text into numbered non-empty paragraphs, and notes into numbered paragraphs with active Markdown heading context.
+- Extract PDF text by page, lecture/transcript text into independently numbered non-empty paragraphs, and notes into numbered paragraphs with active Markdown heading context.
 - Recognize ATX and Setext headings only outside fenced code blocks.
 - Generate structural chunk IDs and locators from parsed structure, never from fixture or provider output.
 - Validate audio-transcription segment ordering, timestamps, speakers, and text before producing transcript chunk IDs and time-range locators.
@@ -188,7 +188,7 @@ When speech is requested for a live result, derive narration from the validated 
 - Keep **Try demo** prominent and usable without configuration.
 - Provide accessible provider/model controls with deployment-configured, temporary-key-ready, and local-only labeling, plus masked/clearable key inputs and explicit Kimi region selection.
 - Provide complete English, Simplified Chinese, Japanese, and Korean interface catalogs while preserving source text, provider/model IDs, filenames, and generated study content verbatim.
-- Explain that PDF/TXT/Markdown and pasted transcript text stay local, while recorded-audio bytes are transmitted to OpenAI only after explicit disclosure and confirmation; normalized chunks are transmitted only for explicitly requested live analysis.
+- Explain that PDF/TXT/Markdown plus pasted lecture and transcript text stay local, while recorded-audio bytes are transmitted to OpenAI only after explicit disclosure and confirmation; normalized chunks are transmitted only for explicitly requested live analysis.
 - Distinguish local extraction, audio upload/transcription, live model analysis, speech generation, simulated demo analysis, and source-map-only results honestly.
 - Display score, counts, enhanced notes with a jump-link table of contents, audit filters, changes-only Markdown, Anki previews, audio playback/download, evidence dialogs/sheets, copy feedback, and downloads.
 - Treat initial, extracting, transcribing, live-loading, generating-speech, success, empty, unconfigured, validation failure, textless PDF, invalid audio, fingerprint mismatch, provider refusal/auth/balance/rate-limit/timeout/invalid-output, retry, and reset as first-class states.
@@ -196,7 +196,7 @@ When speech is requested for a live result, derive narration from the validated 
 
 ## Privacy and security
 
-- Raw PDF, TXT, Markdown, and pasted transcript text remain in browser memory and are cleared on refresh.
+- Raw PDF, uploaded/pasted lecture or transcript text, and Markdown remain in browser memory and are cleared on refresh.
 - After explicit disclosure and user action, raw recorded-audio bytes cross the application server and are sent to OpenAI for transcription. They are held only for the active request and are not persisted or logged by the application.
 - Live analysis sends normalized chunks containing source text to the selected provider; the selected provider's data-handling terms apply.
 - Optional speech generation sends validated enhanced-note narration to OpenAI and returns generated audio. The interface must identify the voice as AI-generated.
@@ -228,7 +228,7 @@ The release succeeds when:
 - the judge completes the no-key sample workflow in under two minutes;
 - the demo remains deterministic and makes no analysis, transcription, or speech request;
 - a production build passes without environment variables;
-- PDF/TXT/Markdown files and pasted transcript text parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
+- PDF/TXT/Markdown files and pasted lecture/transcript text parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
 - each deployment-configured or temporary-key-ready provider can produce a validated result through its documented adapter contract;
 - malformed, truncated, refused, or semantically invalid provider output fails closed;
 - evidence metadata comes only from freshly parsed chunks;

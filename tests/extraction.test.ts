@@ -2,17 +2,22 @@ import type { SourceChunk, SourceType } from "@/domain";
 import { describe, expect, it } from "vitest";
 import {
   FILE_LIMITS,
+  LECTURE_TEXT_FILE_LIMIT,
   MAX_EXTRACTED_CHARACTERS,
   MAX_SOURCE_CHUNKS,
   SourceProcessingError,
   assertExtractedTextLimit,
   assertProcessedSources,
+  chunkLectureText,
   chunkMarkdownNotes,
   chunkPdfPages,
   chunkTranscript,
   normalizeChunkText,
   normalizeSourceText,
   parseMarkdownBlocks,
+  processSourceFiles,
+  processSourceFilesWithTranscriptChunks,
+  readLectureTextFile,
   readNotesFile,
   readTranscriptFile,
   splitOversizedText,
@@ -209,6 +214,42 @@ describe("source chunking and trusted locators", () => {
     expect(chunkTranscript(transcript, "transcript.txt", 13)).toEqual(chunks);
   });
 
+  it("creates stable paragraph-scoped slide chunks from lecture text", () => {
+    const lecture = "Retrieval practice.\r\n\r\nSpace reviews.\r\n\r\nMix examples.";
+    const first = chunkLectureText(lecture, "lecture.txt", 40);
+
+    expect(first).toEqual([
+      {
+        id: "slides:p0001-p0002:c01",
+        sourceType: "slides",
+        sourceName: "lecture.txt",
+        locator: "Paragraphs 1-2",
+        text: "Retrieval practice. Space reviews.",
+      },
+      {
+        id: "slides:p0003:c01",
+        sourceType: "slides",
+        sourceName: "lecture.txt",
+        locator: "Paragraph 3",
+        text: "Mix examples.",
+      },
+    ]);
+    expect(chunkLectureText(lecture, "lecture.txt", 40)).toEqual(first);
+  });
+
+  it("splits oversized lecture-text paragraphs without losing content", () => {
+    const chunks = chunkLectureText("abcdefghijklmnopqrstuv", "lecture.txt", 10);
+
+    expect(chunks.map(({ id, locator, text }) => ({ id, locator, text }))).toEqual([
+      { id: "slides:p0001:c01", locator: "Paragraph 1", text: "abcdefghij" },
+      { id: "slides:p0001:c02", locator: "Paragraph 1", text: "klmnopqrst" },
+      { id: "slides:p0001:c03", locator: "Paragraph 1", text: "uv" },
+    ]);
+    expect(chunks.map((chunk) => chunk.text).join("")).toBe(
+      "abcdefghijklmnopqrstuv",
+    );
+  });
+
   it("splits an oversized paragraph without truncating it", () => {
     const chunks = chunkTranscript(
       "abcdefghijklmnopqrstuv\n\ntail",
@@ -268,6 +309,9 @@ describe("file validation", () => {
 
   it("accepts supported text extensions and rejects invalid UTF-8 or binary text", async () => {
     await expect(
+      readLectureTextFile(new File(["Lecture text"], "lecture.TXT", { type: "text/plain" })),
+    ).resolves.toBe("Lecture text");
+    await expect(
       readTranscriptFile(new File(["Café"], "lecture.txt", { type: "text/plain" })),
     ).resolves.toBe("Café");
     await expect(
@@ -284,6 +328,18 @@ describe("file validation", () => {
     await expect(
       readNotesFile(new File(["valid\u0000binary"], "notes.md", { type: "text/plain" })),
     ).rejects.toMatchObject({ code: "binary_text", sourceType: "notes" });
+    await expect(
+      readLectureTextFile(
+        new File([new Uint8Array([0xc3, 0x28])], "lecture.txt", {
+          type: "text/plain",
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "invalid_encoding", sourceType: "slides" });
+    await expect(
+      readLectureTextFile(
+        new File(["valid\u0000binary"], "lecture.txt", { type: "text/plain" }),
+      ),
+    ).rejects.toMatchObject({ code: "binary_text", sourceType: "slides" });
   });
 
   it("rejects mismatched MIME types, extensions, and oversized text files", async () => {
@@ -293,6 +349,14 @@ describe("file validation", () => {
     await expect(
       readNotesFile(new File(["text"], "notes.md", { type: "application/json" })),
     ).rejects.toMatchObject({ code: "invalid_file_type", sourceType: "notes" });
+    await expect(
+      readLectureTextFile(new File(["text"], "lecture.md", { type: "text/plain" })),
+    ).rejects.toMatchObject({ code: "invalid_file_type", sourceType: "slides" });
+    await expect(
+      readLectureTextFile(
+        new File(["text"], "lecture.txt", { type: "application/pdf" }),
+      ),
+    ).rejects.toMatchObject({ code: "invalid_file_type", sourceType: "slides" });
 
     const oversized = new File(["x".repeat(FILE_LIMITS.notes + 1)], "notes.md", {
       type: "text/markdown",
@@ -301,6 +365,74 @@ describe("file validation", () => {
       code: "file_too_large",
       sourceType: "notes",
     });
+
+    const oversizedLectureText = new File(
+      ["x".repeat(LECTURE_TEXT_FILE_LIMIT + 1)],
+      "lecture.txt",
+      { type: "text/plain" },
+    );
+    await expect(readLectureTextFile(oversizedLectureText)).rejects.toMatchObject({
+      code: "file_too_large",
+      sourceType: "slides",
+    });
+
+    const exactBoundary = new File(
+      ["x".repeat(LECTURE_TEXT_FILE_LIMIT)],
+      "lecture.txt",
+      { type: "text/plain" },
+    );
+    await expect(readLectureTextFile(exactBoundary)).resolves.toHaveLength(
+      LECTURE_TEXT_FILE_LIMIT,
+    );
+  });
+});
+
+describe("lecture-text source processing", () => {
+  const lecture = new File(
+    ["Retrieval practice checks memory.\r\n\r\nSpacing strengthens retention."],
+    "lecture.txt",
+    { type: "text/plain" },
+  );
+  const notes = new File(["# Notes\n\nRecall from memory."], "notes.md", {
+    type: "text/markdown",
+  });
+
+  it("processes a TXT lecture through the standard three-file pipeline", async () => {
+    const processed = await processSourceFiles({
+      slides: lecture,
+      transcript: new File(["The lecturer explains spacing."], "transcript.txt", {
+        type: "text/plain",
+      }),
+      notes,
+    });
+
+    expect(processed.counts).toEqual({ slides: 1, transcript: 1, notes: 1 });
+    expect(processed.chunks[0]).toEqual({
+      id: "slides:p0001-p0002:c01",
+      sourceType: "slides",
+      sourceName: "lecture.txt",
+      locator: "Paragraphs 1-2",
+      text: "Retrieval practice checks memory. Spacing strengthens retention.",
+    });
+  });
+
+  it("processes a TXT lecture with trusted timestamped transcript chunks", async () => {
+    const transcriptChunk: SourceChunk = {
+      id: "transcript:t000000000-t000005000:c01",
+      sourceType: "transcript",
+      sourceName: "recording.mp3",
+      locator: "00:00–00:05",
+      text: "Speaker A: Retrieval practice checks memory.",
+    };
+
+    const processed = await processSourceFilesWithTranscriptChunks(
+      { slides: lecture, notes },
+      [transcriptChunk],
+    );
+
+    expect(processed.counts).toEqual({ slides: 1, transcript: 1, notes: 1 });
+    expect(processed.chunks).toContainEqual(transcriptChunk);
+    expect(processed.chunks[0]?.id).toBe("slides:p0001-p0002:c01");
   });
 });
 

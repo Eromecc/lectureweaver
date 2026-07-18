@@ -1,6 +1,7 @@
 import type { SourceChunk, SourceType } from "@/domain";
 import {
   FILE_LIMITS,
+  LECTURE_TEXT_FILE_LIMIT,
   MAX_EXTRACTED_CHARACTERS,
   MAX_SOURCE_CHUNKS,
 } from "./constants";
@@ -43,24 +44,29 @@ function extension(fileName: string): string {
   return lastDot < 0 ? "" : fileName.slice(lastDot).toLowerCase();
 }
 
-function ensureSize(file: File, sourceType: SourceType): void {
-  if (file.size > FILE_LIMITS[sourceType]) {
-    const limit = sourceType === "slides" ? "10 MiB" : "1 MiB";
+function ensureSize(
+  file: File,
+  sourceType: SourceType,
+  maximumBytes = FILE_LIMITS[sourceType],
+  limitLabel = `${sourceType} limit`,
+): void {
+  if (file.size > maximumBytes) {
+    const limit = maximumBytes === FILE_LIMITS.slides ? "10 MiB" : "1 MiB";
     throw new SourceProcessingError(
       "file_too_large",
       sourceType,
-      `${file.name} is larger than the ${limit} ${sourceType} limit.`,
+      `${file.name} is larger than the ${limit} ${limitLabel}.`,
     );
   }
 }
 
 export async function validatePdfFile(file: File): Promise<void> {
-  ensureSize(file, "slides");
+  ensureSize(file, "slides", FILE_LIMITS.slides, "lecture PDF limit");
   if (extension(file.name) !== ".pdf" || !PDF_MIME_TYPES.has(file.type.toLowerCase())) {
     throw new SourceProcessingError(
       "invalid_file_type",
       "slides",
-      "Lecture slides must be a PDF file.",
+      "The lecture source must be a PDF file in PDF mode.",
     );
   }
   const signature = new TextDecoder("ascii").decode(await file.slice(0, 5).arrayBuffer());
@@ -73,8 +79,13 @@ export async function validatePdfFile(file: File): Promise<void> {
   }
 }
 
-async function decodeUtf8(file: File, sourceType: "transcript" | "notes"): Promise<string> {
-  ensureSize(file, sourceType);
+async function decodeUtf8(
+  file: File,
+  sourceType: SourceType,
+  maximumBytes = FILE_LIMITS[sourceType],
+  limitLabel?: string,
+): Promise<string> {
+  ensureSize(file, sourceType, maximumBytes, limitLabel);
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
     if (text.includes("\u0000")) {
@@ -106,6 +117,22 @@ export async function readTranscriptFile(file: File): Promise<string> {
   return decodeUtf8(file, "transcript");
 }
 
+export async function readLectureTextFile(file: File): Promise<string> {
+  if (extension(file.name) !== ".txt" || !TEXT_MIME_TYPES.has(file.type.toLowerCase())) {
+    throw new SourceProcessingError(
+      "invalid_file_type",
+      "slides",
+      "The lecture source must be a PDF or UTF-8 .txt file.",
+    );
+  }
+  return decodeUtf8(
+    file,
+    "slides",
+    LECTURE_TEXT_FILE_LIMIT,
+    "lecture text limit",
+  );
+}
+
 export async function readNotesFile(file: File): Promise<string> {
   const fileExtension = extension(file.name);
   if (
@@ -135,7 +162,7 @@ export function assertProcessedSources(chunks: SourceChunk[]): ProcessedSources 
         "empty_source",
         sourceType,
         sourceType === "slides"
-          ? "No usable text was found in the PDF. LectureWeaver currently requires a text-based PDF."
+          ? "No usable text was found in the lecture source. Choose a text-based PDF or nonempty UTF-8 text."
           : `No usable text was found in the ${sourceType} file.`,
       );
     }

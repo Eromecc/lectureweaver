@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { SVGProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -553,7 +553,7 @@ describe("LectureWeaver client workflow", () => {
     expect(
       screen.getByRole("button", { name: "Build local source map" }),
     ).toBeDisabled();
-    expect(screen.getByLabelText("Choose slides file")).toHaveAttribute(
+    expect(screen.getByLabelText("Choose lecture PDF file")).toHaveAttribute(
       "accept",
       expect.stringContaining(".pdf"),
     );
@@ -569,9 +569,9 @@ describe("LectureWeaver client workflow", () => {
     );
 
     await waitFor(() => expect(mockProcessSourceFiles).toHaveBeenCalledWith(files));
-    expect(screen.getByText("Extracting pages and paragraph structure…")).toBeVisible();
+    expect(screen.getByText("Extracting lecture and paragraph structure…")).toBeVisible();
     expect(
-      screen.getByText("Extracting pages and paragraph structure…").closest("section"),
+      screen.getByText("Extracting lecture and paragraph structure…").closest("section"),
     ).toHaveAttribute("aria-busy", "true");
     expect(
       screen.getByRole("button", { name: "Build local source map" }),
@@ -580,9 +580,9 @@ describe("LectureWeaver client workflow", () => {
     await user.click(
       screen.getByRole("button", { name: "Language: 简体中文" }),
     );
-    expect(screen.getByText("正在提取页面和段落结构…")).toBeVisible();
+    expect(screen.getByText("正在提取讲义和段落结构…")).toBeVisible();
     expect(
-      screen.queryByText("Extracting pages and paragraph structure…"),
+      screen.queryByText("Extracting lecture and paragraph structure…"),
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "语言: English" }));
 
@@ -729,6 +729,162 @@ describe("LectureWeaver client workflow", () => {
     ).toBeVisible();
   });
 
+  it("accepts a lecture TXT file through the same source-file pipeline", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    const lectureTextFile = new File(
+      ["Retrieval practice improves durable learning."],
+      "lecture.txt",
+      { type: "text/plain" },
+    );
+    mockProcessSourceFiles.mockResolvedValue(processed);
+
+    render(<LectureWeaver />);
+
+    const lectureModeGroup = screen.getByRole("group", {
+      name: "Choose lecture material type",
+    });
+    expect(lectureModeGroup).toHaveClass("grid-cols-3");
+    await user.click(within(lectureModeGroup).getByRole("button", { name: "TXT file" }));
+    await user.upload(
+      screen.getByLabelText("Choose lecture TXT file"),
+      lectureTextFile,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Build local source map" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Your local source map is ready.",
+      }),
+    ).toBeVisible();
+    expect(mockProcessSourceFiles).toHaveBeenCalledWith({
+      slides: lectureTextFile,
+      transcript: selectedFiles.transcript,
+      notes: selectedFiles.notes,
+    });
+  });
+
+  it("turns pasted lecture text into a local File before processing", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+
+    render(<LectureWeaver />);
+
+    await user.click(
+      within(
+        screen.getByRole("group", { name: "Choose lecture material type" }),
+      ).getByRole("button", { name: "Paste lecture" }),
+    );
+    const lectureTextarea = screen.getByLabelText("Paste lecture text");
+    fireEvent.change(lectureTextarea, {
+      target: {
+        value: "Spacing study sessions improves long-term retention.",
+      },
+    });
+    await user.click(
+      screen.getByRole("button", { name: "Use pasted lecture text" }),
+    );
+    expect(await screen.findByText("pasted-lecture.txt")).toBeVisible();
+
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Build local source map" }),
+    );
+
+    await screen.findByRole("heading", {
+      name: "Your local source map is ready.",
+    });
+    const processedFiles = mockProcessSourceFiles.mock.calls.at(-1)?.[0];
+    expect(processedFiles?.slides).toBeInstanceOf(File);
+    expect(processedFiles?.slides.name).toBe("pasted-lecture.txt");
+    expect(processedFiles?.slides.type).toBe("text/plain");
+    await expect(processedFiles?.slides.text()).resolves.toBe(
+      "Spacing study sessions improves long-term retention.",
+    );
+  });
+
+  it("rejects empty and oversized pasted lecture text before processing", async () => {
+    const user = userEvent.setup();
+    render(<LectureWeaver />);
+
+    await user.click(
+      within(
+        screen.getByRole("group", { name: "Choose lecture material type" }),
+      ).getByRole("button", { name: "Paste lecture" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Use pasted lecture text" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Paste lecture text before continuing.",
+    );
+
+    fireEvent.change(screen.getByLabelText("Paste lecture text"), {
+      target: { value: "x".repeat(1024 * 1024 + 1) },
+    });
+    await user.click(
+      screen.getByRole("button", { name: "Use pasted lecture text" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "pasted-lecture.txt is larger than the 1 MiB lecture text limit.",
+    );
+    expect(mockProcessSourceFiles).not.toHaveBeenCalled();
+  });
+
+  it("clears the accepted lecture source on mode changes and restores PDF mode for the demo", async () => {
+    const user = userEvent.setup();
+    const files = sourceFiles();
+    mockLoadDemoFiles.mockResolvedValue(files);
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRunFixtureAnalysis.mockResolvedValue(result);
+
+    render(<LectureWeaver />);
+    const lectureModeGroup = screen.getByRole("group", {
+      name: "Choose lecture material type",
+    });
+    await user.click(within(lectureModeGroup).getByRole("button", { name: "Paste lecture" }));
+    fireEvent.change(screen.getByLabelText("Paste lecture text"), {
+      target: { value: "A compact lecture outline." },
+    });
+    await user.click(
+      screen.getByRole("button", { name: "Use pasted lecture text" }),
+    );
+    expect(await screen.findByText("pasted-lecture.txt")).toBeVisible();
+
+    await user.click(within(lectureModeGroup).getByRole("button", { name: "TXT file" }));
+    expect(screen.queryByText("pasted-lecture.txt")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Build local source map" }),
+    ).toBeDisabled();
+
+    await user.click(
+      screen.getByRole("button", { name: "Try the sample lecture" }),
+    );
+    await screen.findByRole("heading", { name: "Needs a careful pass" });
+    expect(
+      within(lectureModeGroup).getByRole("button", { name: "PDF" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getAllByText("sample.pdf").length).toBeGreaterThan(0);
+  });
+
   it("shows a local validation error and recovers after replacing the file", async () => {
     const user = userEvent.setup();
     const invalidFiles = sourceFiles("invalid.pdf");
@@ -747,7 +903,7 @@ describe("LectureWeaver client workflow", () => {
     mockRunFixtureAnalysis.mockResolvedValue(result);
 
     render(<LectureWeaver providers={configuredProviders} />);
-    await user.upload(screen.getByLabelText("Choose slides file"), invalidFiles.slides);
+    await user.upload(screen.getByLabelText("Choose lecture PDF file"), invalidFiles.slides);
     await user.upload(
       screen.getByLabelText("Choose transcript file"),
       invalidFiles.transcript,
@@ -766,7 +922,7 @@ describe("LectureWeaver client workflow", () => {
     );
     expect(screen.getByText("invalid.pdf")).toBeVisible();
 
-    await user.upload(screen.getByLabelText("Choose slides file"), replacementPdf);
+    await user.upload(screen.getByLabelText("Choose lecture PDF file"), replacementPdf);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByText("replacement.pdf")).toBeVisible();
     await user.click(
@@ -783,6 +939,110 @@ describe("LectureWeaver client workflow", () => {
     expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
     const retriedFiles = mockProcessSourceFiles.mock.calls.at(-1)?.[0];
     expect(retriedFiles?.slides).toBe(replacementPdf);
+  });
+
+  it("offers pasted lecture text after a recoverable PDF extraction failure", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles("image-only.pdf");
+    mockProcessSourceFiles
+      .mockRejectedValueOnce(
+        new SourceProcessingError(
+          "empty_source",
+          "slides",
+          "No usable text was found in the PDF.",
+        ),
+      )
+      .mockResolvedValueOnce(processed);
+
+    render(<LectureWeaver />);
+    await user.upload(
+      screen.getByLabelText("Choose lecture PDF file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Build local source map" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No usable text was found in the PDF.",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Use lecture text instead" }),
+    );
+    const lectureTextarea = screen.getByLabelText("Paste lecture text");
+    expect(lectureTextarea).toHaveFocus();
+    expect(screen.queryByText("image-only.pdf")).not.toBeInTheDocument();
+
+    fireEvent.change(lectureTextarea, {
+      target: { value: "A text alternative for the image-only lecture." },
+    });
+    await user.click(
+      screen.getByRole("button", { name: "Use pasted lecture text" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Build local source map" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Your local source map is ready.",
+      }),
+    ).toBeVisible();
+    expect(mockProcessSourceFiles.mock.calls.at(-1)?.[0].slides.name).toBe(
+      "pasted-lecture.txt",
+    );
+  });
+
+  it("does not offer PDF recovery for a lecture TXT validation error", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    const invalidText = new File(["\u0000"], "lecture.txt", {
+      type: "text/plain",
+    });
+    mockProcessSourceFiles.mockRejectedValueOnce(
+      new SourceProcessingError(
+        "binary_text",
+        "slides",
+        "lecture.txt appears to contain binary content.",
+      ),
+    );
+
+    render(<LectureWeaver />);
+    await user.click(
+      within(
+        screen.getByRole("group", { name: "Choose lecture material type" }),
+      ).getByRole("button", { name: "TXT file" }),
+    );
+    await user.upload(
+      screen.getByLabelText("Choose lecture TXT file"),
+      invalidText,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Build local source map" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "lecture.txt appears to contain binary content.",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Use lecture text instead" }),
+    ).not.toBeInTheDocument();
   });
 
   it("uses a masked current-tab key for an otherwise unconfigured live provider", async () => {
@@ -818,7 +1078,7 @@ describe("LectureWeaver client workflow", () => {
     ).toBeDisabled();
 
     await user.upload(
-      screen.getByLabelText("Choose slides file"),
+      screen.getByLabelText("Choose lecture PDF file"),
       selectedFiles.slides,
     );
     await user.upload(
@@ -873,7 +1133,7 @@ describe("LectureWeaver client workflow", () => {
       "global",
     );
     await user.upload(
-      screen.getByLabelText("Choose slides file"),
+      screen.getByLabelText("Choose lecture PDF file"),
       selectedFiles.slides,
     );
     await user.upload(
@@ -963,7 +1223,7 @@ describe("LectureWeaver client workflow", () => {
       temporaryKey,
     );
     await user.upload(
-      screen.getByLabelText("Choose slides file"),
+      screen.getByLabelText("Choose lecture PDF file"),
       selectedFiles.slides,
     );
     await user.upload(
@@ -1008,7 +1268,7 @@ describe("LectureWeaver client workflow", () => {
       "deepseek-v4-pro",
     );
     await user.upload(
-      screen.getByLabelText("Choose slides file"),
+      screen.getByLabelText("Choose lecture PDF file"),
       selectedFiles.slides,
     );
     await user.upload(
@@ -1060,7 +1320,7 @@ describe("LectureWeaver client workflow", () => {
     await user.click(ankiOption);
     expect(ankiOption).not.toBeChecked();
 
-    await user.upload(screen.getByLabelText("Choose slides file"), selectedFiles.slides);
+    await user.upload(screen.getByLabelText("Choose lecture PDF file"), selectedFiles.slides);
     await user.upload(
       screen.getByLabelText("Choose transcript file"),
       selectedFiles.transcript,
@@ -1135,7 +1395,7 @@ describe("LectureWeaver client workflow", () => {
 
     render(<LectureWeaver providers={configuredProviders} />);
     await user.upload(
-      screen.getByLabelText("Choose slides file"),
+      screen.getByLabelText("Choose lecture PDF file"),
       selectedFiles.slides,
     );
     await user.upload(
@@ -1182,7 +1442,7 @@ describe("LectureWeaver client workflow", () => {
 
     render(<LectureWeaver providers={configuredProviders} />);
     await user.upload(
-      screen.getByLabelText("Choose slides file"),
+      screen.getByLabelText("Choose lecture PDF file"),
       selectedFiles.slides,
     );
     await user.upload(
@@ -1224,7 +1484,7 @@ describe("LectureWeaver client workflow", () => {
 
     render(<LectureWeaver providers={multiProviderCatalog} />);
     await user.upload(
-      screen.getByLabelText("Choose slides file"),
+      screen.getByLabelText("Choose lecture PDF file"),
       selectedFiles.slides,
     );
     await user.upload(

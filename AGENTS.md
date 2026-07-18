@@ -61,8 +61,8 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 
 ## Extraction and demo conventions
 
-- Parse PDF, TXT, and Markdown files in the browser. Dynamically load PDF.js client-side and use its bundled local worker.
-- Support text-based PDF slides, UTF-8 Markdown notes, and either an uploaded/pasted UTF-8 transcript or a supported completed-audio upload. Pasted text must enter the same validation, normalization, chunking, and locator pipeline as TXT input. Do not add live microphone access, browser recording, or realtime transcription.
+- Parse PDF, TXT, pasted text, and Markdown in the browser. Dynamically load PDF.js client-side and use its bundled local worker.
+- Support a text-based PDF, uploaded UTF-8 TXT, or pasted UTF-8 text as the lecture source; UTF-8 Markdown notes; and either an uploaded/pasted UTF-8 transcript or a supported completed-audio upload. Pasted lecture and transcript text must enter the same validation, normalization, chunking, and locator pipeline as their TXT equivalents. Keep the internal source type `slides` for both page- and paragraph-located lecture sources. Do not add live microphone access, browser recording, or realtime transcription.
 - Preserve page locators, numbered paragraph locators, Markdown heading paths, validated audio time-range locators, and speaker-labeled transcript excerpts.
 - Recognize Markdown ATX and Setext headings only outside fenced code blocks.
 - Enforce limits centrally: 10 MiB PDF, 1 MiB per text file, 4,000,000-byte audio upload, 120,000 normalized characters total, 100 chunks, 1,800 characters per chunk, and 4,096 narration characters per speech request.
@@ -140,7 +140,7 @@ Official references:
 - Keep **Try demo** prominent and no-key.
 - Show deployment-configured, temporary-key-ready, and local-only states without revealing, fingerprinting, or showing a suffix of credentials. Support English, Simplified Chinese, Japanese, and Korean UI catalogs with identical key/placeholder coverage.
 - Distinguish local extraction, audio upload/transcription, live analysis, speech generation, simulated analysis, and source-map-only states honestly.
-- Treat initial, extracting, transcribing, live loading, generating speech, success, empty, validation failure, textless PDF, invalid audio, fingerprint mismatch, provider errors, retry, and reset as first-class states.
+- Treat initial, extracting, transcribing, live loading, generating speech, success, empty, validation failure, textless/unreadable PDF with lecture-text recovery, invalid audio, fingerprint mismatch, provider errors, retry, and reset as first-class states.
 - On narrow screens, prevent horizontal overflow and present evidence as an accessible sheet/dialog.
 - Render user, fixture, and provider Markdown without unsafe raw HTML.
 - Reject raw HTML, Markdown images, autolinks, Markdown links/references, and bare external URLs in generated Markdown before export.
@@ -196,7 +196,7 @@ The release is complete only when:
 
 - `npm install`, `npm run lint`, `npm test`, and `npm run build` pass with no provider key required;
 - **Try demo** remains a complete, deterministic, no-request judge path under two minutes;
-- PDF/TXT/Markdown files and pasted transcript text parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
+- PDF/TXT/Markdown files and pasted lecture/transcript text parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
 - configured OpenAI, DeepSeek, and Kimi adapters follow their provider-specific contracts;
 - all provider output passes Zod and semantic validation before trusted hydration;
 - score/counts/Markdown/Anki exports remain application-computed and deterministic;

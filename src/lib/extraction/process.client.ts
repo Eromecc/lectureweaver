@@ -1,9 +1,15 @@
 import type { SourceChunk } from "@/domain";
 
-import { chunkMarkdownNotes, chunkPdfPages, chunkTranscript } from "./chunking";
+import {
+  chunkLectureText,
+  chunkMarkdownNotes,
+  chunkPdfPages,
+  chunkTranscript,
+} from "./chunking";
 import {
   assertExtractedTextLimit,
   assertProcessedSources,
+  readLectureTextFile,
   readNotesFile,
   readTranscriptFile,
   validatePdfFile,
@@ -12,22 +18,47 @@ import { SourceProcessingError } from "./errors";
 import type { ProcessedSources, SourceFiles } from "./files";
 import { extractPdfPages } from "./pdf.client";
 
+type ProcessedLectureSource = {
+  chunks: SourceChunk[];
+  extractedText: string[];
+};
+
+function hasPdfExtension(file: File): boolean {
+  return file.name.toLowerCase().endsWith(".pdf");
+}
+
+async function processLectureSource(file: File): Promise<ProcessedLectureSource> {
+  if (hasPdfExtension(file)) {
+    await validatePdfFile(file);
+    const pages = await extractPdfPages(file);
+    return {
+      chunks: chunkPdfPages(pages, file.name),
+      extractedText: pages.map((page) => page.text),
+    };
+  }
+
+  const text = await readLectureTextFile(file);
+  return {
+    chunks: chunkLectureText(text, file.name),
+    extractedText: [text],
+  };
+}
+
 export async function processSourceFiles(files: SourceFiles): Promise<ProcessedSources> {
-  await validatePdfFile(files.slides);
-  const [pages, transcript, notes] = await Promise.all([
-    extractPdfPages(files.slides),
+  const [lecture, transcript, notes] = await Promise.all([
+    processLectureSource(files.slides),
     readTranscriptFile(files.transcript),
     readNotesFile(files.notes),
   ]);
 
   assertExtractedTextLimit([
-    ...pages.map((page) => page.text),
+    ...lecture.extractedText,
     transcript,
     notes,
   ]);
 
   return assertProcessedSources([
-    ...chunkPdfPages(pages, files.slides.name),
+    ...lecture.chunks,
     ...chunkTranscript(transcript, files.transcript.name),
     ...chunkMarkdownNotes(notes, files.notes.name),
   ]);
@@ -37,9 +68,8 @@ export async function processSourceFilesWithTranscriptChunks(
   files: Pick<SourceFiles, "slides" | "notes">,
   transcriptChunks: readonly SourceChunk[],
 ): Promise<ProcessedSources> {
-  await validatePdfFile(files.slides);
-  const [pages, notes] = await Promise.all([
-    extractPdfPages(files.slides),
+  const [lecture, notes] = await Promise.all([
+    processLectureSource(files.slides),
     readNotesFile(files.notes),
   ]);
 
@@ -55,13 +85,13 @@ export async function processSourceFilesWithTranscriptChunks(
   }
 
   assertExtractedTextLimit([
-    ...pages.map((page) => page.text),
+    ...lecture.extractedText,
     ...transcriptChunks.map((chunk) => chunk.text),
     notes,
   ]);
 
   return assertProcessedSources([
-    ...chunkPdfPages(pages, files.slides.name),
+    ...lecture.chunks,
     ...transcriptChunks,
     ...chunkMarkdownNotes(notes, files.notes.name),
   ]);
