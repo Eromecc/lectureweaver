@@ -38,7 +38,9 @@ import type {
   AudioSpeechFormat,
   AudioTranscriptionSuccess,
   AudioVoice,
+  KimiRegion,
   NoteChangeType,
+  ProviderId,
   PublicProviderCatalog,
   SourceType,
 } from "@/domain";
@@ -61,6 +63,7 @@ import {
   LiveAnalysisError,
   requestLiveAnalysis,
 } from "@/lib/ai/client";
+import { SessionProviderKeySchema } from "@/lib/ai/session-credential";
 import {
   AudioClientError,
   requestAudioTranscription,
@@ -73,8 +76,10 @@ import {
 } from "@/lib/demo";
 import {
   chunkTimestampedTranscript,
+  normalizeSourceText,
   processSourceFiles,
   processSourceFilesWithTranscriptChunks,
+  readTranscriptFile,
   SourceProcessingError,
 } from "@/lib/extraction";
 import type { ProcessedSources, SourceFiles } from "@/lib/extraction";
@@ -115,7 +120,13 @@ type PipelineErrorState = {
 type IssueStatus = Exclude<AssessmentStatus, "covered">;
 type IssueFilter = "all" | IssueStatus;
 type ResultView = "notes" | "audit" | "changes" | "anki" | "audio";
-type SpokenSourceMode = "transcript" | "audio";
+type SpokenSourceMode = "transcript" | "paste" | "audio";
+type TranscriptInputKind = "upload" | "paste";
+type PastedTranscriptState =
+  | { status: "idle" }
+  | { status: "validating" }
+  | { status: "ready" }
+  | { status: "error"; message: string };
 type AudioTranscriptionState =
   | { status: "idle" }
   | { status: "validating" }
@@ -142,6 +153,7 @@ type EvidenceDrawerSelection =
   | { kind: "card"; card: HydratedAnkiCard };
 
 type PublicProvider = PublicProviderCatalog["providers"][number];
+type SessionProviderKeys = Partial<Record<ProviderId, string>>;
 
 const EMPTY_PROVIDER_CATALOG: PublicProviderCatalog = { providers: [] };
 
@@ -554,7 +566,10 @@ function transcriptDownloadName(fileName: string): string {
 
 function SpokenSourceCard({
   mode,
+  transcriptInputKind,
   transcriptFile,
+  pastedTranscript,
+  pastedTranscriptState,
   audioFile,
   transcriptionState,
   inputKey,
@@ -562,13 +577,19 @@ function SpokenSourceCard({
   audioConfigured,
   onModeChange,
   onTranscriptSelect,
+  onPastedTranscriptChange,
+  onUsePastedTranscript,
+  onClearPastedTranscript,
   onAudioSelect,
   onTranscribe,
   t,
   locale,
 }: {
   mode: SpokenSourceMode;
+  transcriptInputKind: TranscriptInputKind | null;
   transcriptFile?: File;
+  pastedTranscript: string;
+  pastedTranscriptState: PastedTranscriptState;
   audioFile: File | null;
   transcriptionState: AudioTranscriptionState;
   inputKey: number;
@@ -576,6 +597,9 @@ function SpokenSourceCard({
   audioConfigured: boolean;
   onModeChange: (mode: SpokenSourceMode) => void;
   onTranscriptSelect: (file: File) => void;
+  onPastedTranscriptChange: (value: string) => void;
+  onUsePastedTranscript: () => void;
+  onClearPastedTranscript: () => void;
   onAudioSelect: (file: File) => void;
   onTranscribe: () => void;
   t: UiTranslator;
@@ -583,7 +607,9 @@ function SpokenSourceCard({
 }) {
   const transcriptInputId = `source-transcript-${inputKey}`;
   const audioInputId = `source-audio-${inputKey}`;
+  const pastedTranscriptInputId = `source-transcript-paste-${inputKey}`;
   const transcribing = transcriptionState.status === "loading";
+  const validatingPaste = pastedTranscriptState.status === "validating";
   const invalidAudio =
     transcriptionState.status === "error" && transcriptionState.invalidFile;
   const blockedProvider =
@@ -623,6 +649,8 @@ function SpokenSourceCard({
         <span className="grid size-11 place-items-center rounded-2xl bg-[#dcece8] text-[#1f625e] transition group-hover:rotate-3">
           {mode === "audio" ? (
             <AudioLines className="size-5" aria-hidden="true" />
+          ) : mode === "paste" ? (
+            <Clipboard className="size-5" aria-hidden="true" />
           ) : (
             <FileText className="size-5" aria-hidden="true" />
           )}
@@ -630,7 +658,7 @@ function SpokenSourceCard({
       </div>
 
       <div
-        className="mt-5 flex gap-1 rounded-xl border border-[#14213d]/10 bg-[#f7f4ec] p-1"
+        className="mt-5 grid grid-cols-3 gap-1 rounded-xl border border-[#14213d]/10 bg-[#f7f4ec] p-1"
         role="group"
         aria-label={t("spoken.modeAria")}
       >
@@ -639,23 +667,32 @@ function SpokenSourceCard({
           aria-pressed={mode === "transcript"}
           disabled={disabled}
           onClick={() => onModeChange("transcript")}
-          className={`min-h-9 flex-1 rounded-lg px-3 text-xs font-bold transition ${mode === "transcript" ? "bg-white text-[#14213d] shadow-sm" : "text-[#53627b] hover:bg-white/60"}`}
+          className={`min-h-9 min-w-0 rounded-lg px-1.5 text-xs font-bold leading-4 transition sm:px-3 ${mode === "transcript" ? "bg-white text-[#14213d] shadow-sm" : "text-[#53627b] hover:bg-white/60"}`}
         >
           {t("spoken.transcriptMode")}
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === "paste"}
+          disabled={disabled}
+          onClick={() => onModeChange("paste")}
+          className={`min-h-9 min-w-0 rounded-lg px-1.5 text-xs font-bold leading-4 transition sm:px-3 ${mode === "paste" ? "bg-white text-[#14213d] shadow-sm" : "text-[#53627b] hover:bg-white/60"}`}
+        >
+          {t("spoken.pasteMode")}
         </button>
         <button
           type="button"
           aria-pressed={mode === "audio"}
           disabled={disabled}
           onClick={() => onModeChange("audio")}
-          className={`min-h-9 flex-1 rounded-lg px-3 text-xs font-bold transition ${mode === "audio" ? "bg-white text-[#14213d] shadow-sm" : "text-[#53627b] hover:bg-white/60"}`}
+          className={`min-h-9 min-w-0 rounded-lg px-1.5 text-xs font-bold leading-4 transition sm:px-3 ${mode === "audio" ? "bg-white text-[#14213d] shadow-sm" : "text-[#53627b] hover:bg-white/60"}`}
         >
           {t("spoken.audioMode")}
         </button>
       </div>
 
       {mode === "transcript" ? (
-        transcriptFile ? (
+        transcriptInputKind === "upload" && transcriptFile ? (
           <div className="mt-5 flex flex-1 flex-col justify-between rounded-2xl border border-[#2f837c]/20 bg-[#edf6f3] p-4">
             <div className="flex items-start gap-3">
               <CircleCheck className="mt-0.5 size-5 shrink-0 text-[#2f837c]" aria-hidden="true" />
@@ -687,6 +724,97 @@ function SpokenSourceCard({
             <span className="mt-1 text-xs text-[#53627b]">UTF-8 TXT · {t("source.transcriptLimit")}</span>
           </label>
         )
+      ) : mode === "paste" ? (
+        <div className="mt-5 flex flex-1 flex-col gap-3">
+          <div>
+            <label
+              htmlFor={pastedTranscriptInputId}
+              className="block text-sm font-bold text-[#14213d]"
+            >
+              {t("spoken.pasteLabel")}
+            </label>
+            <textarea
+              id={pastedTranscriptInputId}
+              value={pastedTranscript}
+              disabled={disabled || validatingPaste}
+              rows={7}
+              onChange={(event) => onPastedTranscriptChange(event.currentTarget.value)}
+              placeholder={t("spoken.pastePlaceholder")}
+              aria-invalid={pastedTranscriptState.status === "error"}
+              aria-describedby={`${pastedTranscriptInputId}-description ${pastedTranscriptInputId}-count`}
+              className="mt-2 min-h-36 w-full resize-y rounded-2xl border border-[#14213d]/15 bg-white px-4 py-3 text-sm leading-6 text-[#14213d] outline-none transition placeholder:text-[#53627b]/65 focus:border-[#2f837c] focus:ring-4 focus:ring-[#2f837c]/10 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            <div className="mt-2 flex flex-wrap items-start justify-between gap-2 text-xs leading-5 text-[#53627b]">
+              <p id={`${pastedTranscriptInputId}-description`} className="max-w-sm">
+                {t("spoken.pasteDescription")}
+              </p>
+              <p id={`${pastedTranscriptInputId}-count`} className="shrink-0 tabular-nums">
+                {t("spoken.pasteCharacters", {
+                  count: pastedTranscript.length.toLocaleString(locale),
+                })} · {formatBytes(new Blob([pastedTranscript]).size)}
+              </p>
+            </div>
+          </div>
+
+          {pastedTranscriptState.status === "error" && (
+            <div
+              className="rounded-xl border border-[#ef6b5a]/35 bg-[#fff0ec] p-3 text-xs leading-5 text-[#a83f32]"
+              role="alert"
+            >
+              <p className="font-bold">{t("spoken.pasteErrorTitle")}</p>
+              <p className="mt-1">{pastedTranscriptState.message}</p>
+            </div>
+          )}
+
+          {pastedTranscriptState.status === "ready" &&
+            transcriptInputKind === "paste" &&
+            transcriptFile && (
+              <div className="flex items-start gap-3 rounded-xl border border-[#2f837c]/20 bg-[#edf6f3] p-3 text-xs text-[#1f625e]">
+                <CircleCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <p>
+                  <span className="font-bold">{transcriptFile.name}</span> · {formatBytes(transcriptFile.size)} · {t("spoken.pasteReadySuffix")}
+                </p>
+              </div>
+            )}
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={disabled || validatingPaste}
+              onClick={onUsePastedTranscript}
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-4 text-sm font-bold text-white transition hover:bg-[#223252] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {validatingPaste ? (
+                <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Clipboard className="size-4" aria-hidden="true" />
+              )}
+              {validatingPaste
+                ? t("spoken.pasteLoading")
+                : pastedTranscriptState.status === "ready"
+                  ? t("spoken.pasteReplace")
+                  : t("spoken.pasteUse")}
+            </button>
+            {pastedTranscript.length > 0 && (
+              <button
+                type="button"
+                disabled={disabled || validatingPaste}
+                onClick={onClearPastedTranscript}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#14213d]/15 bg-white px-4 text-sm font-bold text-[#14213d] transition hover:bg-[#f7f4ec] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X className="size-4" aria-hidden="true" />
+                {t("spoken.pasteClear")}
+              </button>
+            )}
+          </div>
+          <p className="sr-only" aria-live="polite">
+            {validatingPaste
+              ? t("spoken.pasteLoading")
+              : pastedTranscriptState.status === "ready"
+                ? t("spoken.pasteReadyAnnouncement")
+                : ""}
+          </p>
+        </div>
       ) : (
         <div className="mt-5 flex flex-1 flex-col gap-3">
           {audioFile ? (
@@ -949,19 +1077,43 @@ function SourceMapSummary({
   );
 }
 
+const SESSION_PROVIDER_IDS = ["openai", "deepseek", "kimi"] as const satisfies readonly ProviderId[];
+const SESSION_PROVIDER_LABELS: Readonly<Record<ProviderId, string>> = {
+  openai: "OpenAI",
+  deepseek: "DeepSeek",
+  kimi: "Kimi",
+};
+
+function sessionKeyStatus(value: string | undefined): "empty" | "valid" | "invalid" {
+  if (value === undefined || value.length === 0) return "empty";
+  return SessionProviderKeySchema.safeParse(value).success ? "valid" : "invalid";
+}
+
 function ProviderControls({
   catalog,
   target,
+  sessionKeys,
+  kimiRegion,
   disabled,
   onProviderChange,
   onModelChange,
+  onSessionKeyChange,
+  onClearSessionKey,
+  onClearAllSessionKeys,
+  onKimiRegionChange,
   t,
 }: {
   catalog: PublicProviderCatalog;
   target: AnalysisTarget | null;
+  sessionKeys: SessionProviderKeys;
+  kimiRegion: KimiRegion | null;
   disabled: boolean;
   onProviderChange: (provider: PublicProvider) => void;
   onModelChange: (model: string) => void;
+  onSessionKeyChange: (provider: ProviderId, value: string) => void;
+  onClearSessionKey: (provider: ProviderId) => void;
+  onClearAllSessionKeys: () => void;
+  onKimiRegionChange: (region: KimiRegion | null) => void;
   t: UiTranslator;
 }) {
   const selectedProvider = catalog.providers.find(
@@ -970,6 +1122,33 @@ function ProviderControls({
   const selectedModel = selectedProvider?.models.find(
     (model) => model.id === target?.model,
   );
+  const selectedSessionStatus =
+    selectedProvider === undefined
+      ? "empty"
+      : sessionKeyStatus(sessionKeys[selectedProvider.id]);
+  const selectedSessionReady =
+    selectedSessionStatus === "valid" &&
+    (selectedProvider?.id !== "kimi" || kimiRegion !== null);
+  const hasSessionInput = SESSION_PROVIDER_IDS.some(
+    (provider) => (sessionKeys[provider]?.length ?? 0) > 0,
+  );
+  const selectedCredentialLabel =
+    selectedSessionReady
+      ? t("provider.temporaryActive")
+      : selectedSessionStatus === "valid" && selectedProvider?.id === "kimi"
+        ? t("provider.kimiRegionPlaceholder")
+        : selectedSessionStatus === "invalid"
+          ? t("provider.temporaryInvalid")
+          : selectedProvider?.configured
+            ? t("provider.serverKeyConfigured")
+            : t("provider.localOnly");
+  const selectedCredentialClass =
+    selectedSessionReady ||
+    (selectedSessionStatus === "empty" && selectedProvider?.configured)
+      ? "bg-[#dcece8] text-[#1f625e]"
+      : selectedSessionStatus === "invalid"
+        ? "bg-[#fee4dd] text-[#a83f32]"
+        : "bg-[#f8ebc8] text-[#765511]";
 
   return (
     <fieldset className="mt-6 rounded-[24px] border border-[#14213d]/10 bg-white/55 p-4 sm:p-5">
@@ -1023,9 +1202,132 @@ function ProviderControls({
         <p className="max-w-3xl">
           {selectedModel?.description ?? selectedProvider?.description ?? t("provider.noSettings")}
         </p>
-        <span className={`inline-flex w-fit shrink-0 rounded-full px-2.5 py-1 font-bold ${selectedProvider?.configured ? "bg-[#dcece8] text-[#1f625e]" : "bg-[#f8ebc8] text-[#765511]"}`}>
-          {selectedProvider?.configured ? t("provider.serverKeyConfigured") : t("provider.localOnly")}
+        <span className={`inline-flex w-fit shrink-0 rounded-full px-2.5 py-1 font-bold ${selectedCredentialClass}`}>
+          {selectedCredentialLabel}
         </span>
+      </div>
+
+      <div className="mt-5 border-t border-[#14213d]/10 pt-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-[#14213d]">
+              {t("provider.temporaryTitle")}
+            </h3>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-[#53627b]">
+              {t("provider.temporaryDescription")}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={disabled || !hasSessionInput}
+            onClick={onClearAllSessionKeys}
+            className="inline-flex min-h-9 w-fit shrink-0 items-center justify-center rounded-lg border border-[#14213d]/15 bg-white px-3 text-xs font-bold text-[#14213d] transition hover:bg-[#f7f4ec] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {t("provider.clearAll")}
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          {SESSION_PROVIDER_IDS.map((providerId) => {
+            const providerLabel =
+              catalog.providers.find((provider) => provider.id === providerId)?.label ??
+              SESSION_PROVIDER_LABELS[providerId];
+            const value = sessionKeys[providerId] ?? "";
+            const status = sessionKeyStatus(value);
+            const inputId = `temporary-${providerId}-key`;
+            const statusId = `${inputId}-status`;
+
+            return (
+              <div
+                key={providerId}
+                className="rounded-2xl border border-[#14213d]/10 bg-[#f7f4ec]/70 p-4"
+              >
+                <label htmlFor={inputId} className="block text-xs font-bold text-[#14213d]">
+                  {t("provider.temporaryKeyLabel", { provider: providerLabel })}
+                </label>
+                <input
+                  id={inputId}
+                  type="password"
+                  value={value}
+                  disabled={disabled}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  data-1p-ignore="true"
+                  data-lpignore="true"
+                  aria-invalid={status === "invalid"}
+                  aria-describedby={statusId}
+                  onChange={(event) =>
+                    onSessionKeyChange(providerId, event.currentTarget.value)
+                  }
+                  placeholder={t("provider.temporaryKeyPlaceholder")}
+                  className="mt-2 min-h-11 w-full rounded-xl border border-[#14213d]/15 bg-white px-3 font-mono text-sm text-[#14213d] placeholder:font-sans disabled:cursor-not-allowed disabled:opacity-60"
+                />
+                <div className="mt-2 flex min-h-7 items-start justify-between gap-3">
+                  <p
+                    id={statusId}
+                    aria-live="polite"
+                    className={`text-[11px] leading-5 ${
+                      status === "valid"
+                        ? "font-bold text-[#1f625e]"
+                        : status === "invalid"
+                          ? "font-bold text-[#a83f32]"
+                          : "text-[#53627b]"
+                    }`}
+                  >
+                    {status === "valid"
+                      ? providerId === "kimi" && kimiRegion === null
+                        ? t("provider.kimiRegionPlaceholder")
+                        : t("provider.temporaryReady")
+                      : status === "invalid"
+                        ? t("provider.temporaryInvalid")
+                        : t("provider.temporaryEmpty")}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={disabled || value.length === 0}
+                    onClick={() => onClearSessionKey(providerId)}
+                    className="shrink-0 text-[11px] font-bold text-[#1f625e] underline decoration-[#2f837c]/30 underline-offset-4 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {t("provider.clearKey", { provider: providerLabel })}
+                  </button>
+                </div>
+
+                {providerId === "kimi" && (
+                  <label htmlFor="temporary-kimi-region" className="mt-3 block text-xs font-bold text-[#14213d]">
+                    {t("provider.kimiRegionLabel")}
+                    <select
+                      id="temporary-kimi-region"
+                      value={kimiRegion ?? ""}
+                      disabled={disabled}
+                      onChange={(event) =>
+                        onKimiRegionChange(
+                          event.currentTarget.value === "cn" ||
+                            event.currentTarget.value === "global"
+                            ? event.currentTarget.value
+                            : null,
+                        )
+                      }
+                      className="mt-2 min-h-10 w-full rounded-xl border border-[#14213d]/15 bg-white px-3 text-xs text-[#14213d] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <option value="">{t("provider.kimiRegionPlaceholder")}</option>
+                      <option value="cn">{t("provider.kimiRegionCn")}</option>
+                      <option value="global">{t("provider.kimiRegionGlobal")}</option>
+                    </select>
+                  </label>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[#daa83c]/30 bg-[#fff7df] p-4 text-xs leading-5 text-[#765511]">
+          <p className="flex items-start gap-2 font-bold">
+            <Lock className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <span>{t("provider.temporaryTrust")}</span>
+          </p>
+          <p className="mt-2 pl-6">{t("provider.temporaryVisibility")}</p>
+        </div>
       </div>
     </fieldset>
   );
@@ -1157,14 +1459,14 @@ function SourceMapOnlyPanel({
           <div>
             <h2 className="text-lg font-bold tracking-[-0.025em]">{t("empty.title")}</h2>
             <p className="mt-2 text-sm leading-6 text-[#53627b]">
-              {provider?.configured === true
+              {provider !== undefined && onAnalyzeLive !== undefined
                 ? t("empty.notSent", { provider: provider.label })
                 : t("empty.unconfigured")}
             </p>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          {provider?.configured === true && onAnalyzeLive !== undefined && (
+          {provider !== undefined && onAnalyzeLive !== undefined && (
             <button type="button" onClick={onAnalyzeLive} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white hover:bg-[#1f625e]">
               <ScanText className="size-4" /> {t("empty.analyzeCurrent", { provider: provider.label })}
             </button>
@@ -1650,10 +1952,12 @@ type GeneratedAudioState = {
 function AudioStudyGuidePanel({
   result,
   audioConfigured,
+  sessionApiKey,
   t,
 }: {
   result: AnalysisResult;
   audioConfigured: boolean;
+  sessionApiKey?: string;
   t: UiTranslator;
 }) {
   const scripts = useMemo(
@@ -1719,7 +2023,10 @@ function AudioStudyGuidePanel({
           voice,
           format,
         },
-        { signal: controller.signal },
+        {
+          signal: controller.signal,
+          ...(sessionApiKey === undefined ? {} : { sessionApiKey }),
+        },
       );
       if (
         controller.signal.aborted ||
@@ -1967,6 +2274,7 @@ function StudyWorkspace({
   result,
   view,
   audioConfigured,
+  audioSessionApiKey,
   onViewChange,
   onOpenAssessment,
   onOpenSection,
@@ -1976,6 +2284,7 @@ function StudyWorkspace({
   result: AnalysisResult;
   view: ResultView;
   audioConfigured: boolean;
+  audioSessionApiKey?: string;
   onViewChange: (view: ResultView) => void;
   onOpenAssessment: (assessment: HydratedConceptAssessment) => void;
   onOpenSection: (section: HydratedEnhancedNoteSection) => void;
@@ -2020,6 +2329,7 @@ function StudyWorkspace({
           <AudioStudyGuidePanel
             result={result}
             audioConfigured={audioConfigured}
+            sessionApiKey={audioSessionApiKey}
             t={t}
           />
         )}
@@ -2253,37 +2563,67 @@ export function LectureWeaver(
   const [target, setTarget] = useState<AnalysisTarget | null>(() =>
     defaultTarget(providers),
   );
+  const [sessionProviderKeys, setSessionProviderKeys] =
+    useState<SessionProviderKeys>({});
+  const [sessionKimiRegion, setSessionKimiRegion] =
+    useState<KimiRegion | null>(null);
   const [includeAnki, setIncludeAnki] = useState(true);
   const [resultView, setResultView] = useState<ResultView>("notes");
   const [evidenceSelection, setEvidenceSelection] = useState<EvidenceDrawerSelection | null>(null);
   const [inputKey, setInputKey] = useState(0);
   const [spokenSourceMode, setSpokenSourceMode] = useState<SpokenSourceMode>("transcript");
+  const [transcriptInputKind, setTranscriptInputKind] =
+    useState<TranscriptInputKind | null>(null);
+  const [pastedTranscript, setPastedTranscript] = useState("");
+  const [pastedTranscriptState, setPastedTranscriptState] =
+    useState<PastedTranscriptState>({ status: "idle" });
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [transcriptionState, setTranscriptionState] = useState<AudioTranscriptionState>({
     status: "idle",
   });
   const outputRef = useRef<HTMLDivElement>(null);
+  const sessionProviderKeysRef = useRef<SessionProviderKeys>({});
   const audioSelectionRef = useRef<File | null>(null);
   const transcriptionRequestRef = useRef<AbortController | null>(null);
+  const pasteValidationVersionRef = useRef(0);
   const loading = mode === "loading";
   const transcribing = transcriptionState.status === "loading";
   const checkingAudio = transcriptionState.status === "validating";
-  const busy = loading || transcribing || checkingAudio;
+  const validatingPaste = pastedTranscriptState.status === "validating";
+  const busy = loading || transcribing || checkingAudio || validatingPaste;
   const ready =
     hasBaseFiles(files) &&
-    (spokenSourceMode === "transcript"
-      ? files.transcript !== undefined
-      : audioFile !== null && transcriptionState.status === "ready");
+    (spokenSourceMode === "audio"
+      ? audioFile !== null && transcriptionState.status === "ready"
+      : files.transcript !== undefined &&
+        transcriptInputKind ===
+          (spokenSourceMode === "paste" ? "paste" : "upload"));
   const selectedProvider = useMemo(
     () => providers.providers.find((provider) => provider.id === target?.provider),
     [providers, target],
   );
+  const selectedProviderReady = useMemo(() => {
+    if (selectedProvider === undefined) return false;
+    const value = sessionProviderKeys[selectedProvider.id];
+    const status = sessionKeyStatus(value);
+    if (status === "valid") {
+      return selectedProvider.id !== "kimi" || sessionKimiRegion !== null;
+    }
+    return status === "empty" && selectedProvider.configured;
+  }, [selectedProvider, sessionKimiRegion, sessionProviderKeys]);
+  const openAiSessionApiKey = useMemo(() => {
+    const value = sessionProviderKeys.openai;
+    return sessionKeyStatus(value) === "valid" ? value : undefined;
+  }, [sessionProviderKeys.openai]);
   const audioConfigured = useMemo(
-    () =>
-      providers.providers.some(
+    () => {
+      const openAiInputStatus = sessionKeyStatus(sessionProviderKeys.openai);
+      return openAiInputStatus === "valid" ||
+        (openAiInputStatus === "empty" && providers.providers.some(
         (provider) => provider.id === "openai" && provider.configured,
-      ),
-    [providers],
+        ));
+    },
+    [providers, sessionProviderKeys.openai],
   );
   const outputOptions = useMemo<AnalysisOutputOptions>(
     () => ({ ankiCards: includeAnki }),
@@ -2337,18 +2677,68 @@ export function LectureWeaver(
 
   useEffect(() => {
     return () => {
+      sessionProviderKeysRef.current = {};
       audioSelectionRef.current = null;
       transcriptionRequestRef.current?.abort();
       transcriptionRequestRef.current = null;
     };
   }, []);
 
+  useEffect(() => {
+    const clearOnPageHide = () => {
+      sessionProviderKeysRef.current = {};
+      setSessionProviderKeys({});
+      setSessionKimiRegion(null);
+    };
+    window.addEventListener("pagehide", clearOnPageHide);
+    return () => window.removeEventListener("pagehide", clearOnPageHide);
+  }, []);
+
+  const replaceSessionProviderKeys = (next: SessionProviderKeys) => {
+    sessionProviderKeysRef.current = next;
+    setSessionProviderKeys(next);
+  };
+
+  const resetTranscriptionCredentialError = () => {
+    setTranscriptionState((current) =>
+      current.status === "error" && !current.invalidFile
+        ? { status: "idle" }
+        : current,
+    );
+  };
+
+  const changeSessionProviderKey = (provider: ProviderId, value: string) => {
+    replaceSessionProviderKeys({
+      ...sessionProviderKeysRef.current,
+      [provider]: value,
+    });
+    if (provider === "openai") resetTranscriptionCredentialError();
+    if (provider === "kimi" && value.length === 0) setSessionKimiRegion(null);
+  };
+
+  const clearSessionProviderKey = (provider: ProviderId) => {
+    const next = { ...sessionProviderKeysRef.current };
+    delete next[provider];
+    replaceSessionProviderKeys(next);
+    if (provider === "openai") resetTranscriptionCredentialError();
+    if (provider === "kimi") setSessionKimiRegion(null);
+  };
+
+  const clearAllSessionProviderKeys = () => {
+    replaceSessionProviderKeys({});
+    setSessionKimiRegion(null);
+    resetTranscriptionCredentialError();
+  };
+
   const updateFile = (sourceType: SourceType, file: File) => {
     setFiles((current) => ({ ...current, [sourceType]: file }));
     if (sourceType === "transcript") {
+      pasteValidationVersionRef.current += 1;
       transcriptionRequestRef.current?.abort();
       transcriptionRequestRef.current = null;
       setSpokenSourceMode("transcript");
+      setTranscriptInputKind("upload");
+      setPastedTranscriptState({ status: "idle" });
       setAudioFile(null);
       audioSelectionRef.current = null;
       setTranscriptionState({ status: "idle" });
@@ -2363,7 +2753,7 @@ export function LectureWeaver(
 
   const chooseSpokenSourceMode = (nextMode: SpokenSourceMode) => {
     if (nextMode === spokenSourceMode) return;
-    if (nextMode === "transcript") {
+    if (nextMode !== "audio") {
       transcriptionRequestRef.current?.abort();
       transcriptionRequestRef.current = null;
     }
@@ -2374,6 +2764,76 @@ export function LectureWeaver(
     setError(null);
     setEvidenceSelection(null);
     setResultView("notes");
+  };
+
+  const changePastedTranscript = (value: string) => {
+    pasteValidationVersionRef.current += 1;
+    setPastedTranscript(value);
+    setPastedTranscriptState({ status: "idle" });
+    if (transcriptInputKind === "paste") {
+      setFiles((current) => {
+        const next = { ...current };
+        delete next.transcript;
+        return next;
+      });
+      setTranscriptInputKind(null);
+    }
+    setProcessed(null);
+    setResult(null);
+    setMode("idle");
+    setError(null);
+    setEvidenceSelection(null);
+    setResultView("notes");
+  };
+
+  const clearPastedTranscript = () => {
+    changePastedTranscript("");
+  };
+
+  const acceptPastedTranscript = async () => {
+    const rawTranscript = pastedTranscript;
+    const validationVersion = pasteValidationVersionRef.current + 1;
+    pasteValidationVersionRef.current = validationVersion;
+    setPastedTranscriptState({ status: "validating" });
+    setProcessed(null);
+    setResult(null);
+    setMode("idle");
+    setError(null);
+    setEvidenceSelection(null);
+    setResultView("notes");
+
+    const transcriptFile = new File([rawTranscript], "pasted-transcript.txt", {
+      type: "text/plain",
+    });
+    try {
+      const validatedText = await readTranscriptFile(transcriptFile);
+      if (pasteValidationVersionRef.current !== validationVersion) return;
+      if (normalizeSourceText(validatedText).length === 0) {
+        setPastedTranscriptState({
+          status: "error",
+          message: t("spoken.pasteEmptyError"),
+        });
+        return;
+      }
+      transcriptionRequestRef.current?.abort();
+      transcriptionRequestRef.current = null;
+      setFiles((current) => ({ ...current, transcript: transcriptFile }));
+      setSpokenSourceMode("paste");
+      setTranscriptInputKind("paste");
+      setAudioFile(null);
+      audioSelectionRef.current = null;
+      setTranscriptionState({ status: "idle" });
+      setPastedTranscriptState({ status: "ready" });
+    } catch (pasteError: unknown) {
+      if (pasteValidationVersionRef.current !== validationVersion) return;
+      setPastedTranscriptState({
+        status: "error",
+        message:
+          pasteError instanceof Error
+            ? pasteError.message
+            : t("spoken.pasteEmptyError"),
+      });
+    }
   };
 
   const chooseAudioFile = async (file: File) => {
@@ -2422,6 +2882,9 @@ export function LectureWeaver(
     try {
       const transcription = await requestAudioTranscription(audioFile, {
         signal: controller.signal,
+        ...(openAiSessionApiKey === undefined
+          ? {}
+          : { sessionApiKey: openAiSessionApiKey }),
       });
       if (
         controller.signal.aborted ||
@@ -2482,11 +2945,37 @@ export function LectureWeaver(
     await nextPaint();
 
     try {
-      const nextResult = await requestLiveAnalysis(
-        nextProcessed,
-        nextTarget,
-        outputOptions,
-      );
+      const sessionApiKey =
+        sessionKeyStatus(sessionProviderKeys[nextTarget.provider]) === "valid"
+          ? sessionProviderKeys[nextTarget.provider]
+          : undefined;
+      if (
+        nextTarget.provider === "kimi" &&
+        sessionApiKey !== undefined &&
+        sessionKimiRegion === null
+      ) {
+        setResult(null);
+        setMode("source-map");
+        revealOutput();
+        return;
+      }
+      const nextResult = sessionApiKey === undefined
+        ? await requestLiveAnalysis(
+            nextProcessed,
+            nextTarget,
+            outputOptions,
+          )
+        : await requestLiveAnalysis(
+            nextProcessed,
+            nextTarget,
+            outputOptions,
+            {
+              sessionApiKey,
+              ...(nextTarget.provider === "kimi" && sessionKimiRegion !== null
+                ? { sessionKimiRegion }
+                : {}),
+            },
+          );
       setResult(nextResult);
       setResultView("notes");
       setMode("ready");
@@ -2507,7 +2996,7 @@ export function LectureWeaver(
         ? transcriptionState.transcription
         : null;
     if (
-      (spokenSourceMode === "transcript" && completeTextFiles === null) ||
+      (spokenSourceMode !== "audio" && completeTextFiles === null) ||
       (spokenSourceMode === "audio" && (audioFile === null || audioTranscription === null))
     ) {
       return;
@@ -2517,7 +3006,8 @@ export function LectureWeaver(
     const canAnalyzeLive =
       requestLive &&
       nextTarget !== null &&
-      provider?.configured === true &&
+      provider !== undefined &&
+      selectedProviderReady &&
       provider.models.some((model) => model.id === nextTarget.model);
 
     setMode("loading");
@@ -2592,6 +3082,10 @@ export function LectureWeaver(
     try {
       const demoFiles = await loadDemoFiles();
       setSpokenSourceMode("transcript");
+      setTranscriptInputKind("upload");
+      setPastedTranscript("");
+      pasteValidationVersionRef.current += 1;
+      setPastedTranscriptState({ status: "idle" });
       setAudioFile(null);
       audioSelectionRef.current = null;
       setTranscriptionState({ status: "idle" });
@@ -2616,7 +3110,8 @@ export function LectureWeaver(
     if (
       processed === null ||
       target === null ||
-      selectedProvider?.configured !== true ||
+      !selectedProviderReady ||
+      selectedProvider === undefined ||
       !selectedProvider.models.some((model) => model.id === target.model)
     ) {
       setError(null);
@@ -2671,8 +3166,13 @@ export function LectureWeaver(
   const reset = () => {
     transcriptionRequestRef.current?.abort();
     transcriptionRequestRef.current = null;
+    clearAllSessionProviderKeys();
     setFiles({});
     setSpokenSourceMode("transcript");
+    setTranscriptInputKind(null);
+    setPastedTranscript("");
+    pasteValidationVersionRef.current += 1;
+    setPastedTranscriptState({ status: "idle" });
     setAudioFile(null);
     audioSelectionRef.current = null;
     setTranscriptionState({ status: "idle" });
@@ -2704,7 +3204,13 @@ export function LectureWeaver(
             <h2 id="upload-title" className="mt-2 text-3xl font-bold tracking-[-0.045em] sm:text-4xl">{t("upload.title")}</h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-[#53627b]">{t("upload.description")}</p>
           </div>
-          {(Object.keys(files).length > 0 || audioFile !== null || processed) && (
+          {(Object.keys(files).length > 0 ||
+            pastedTranscript.length > 0 ||
+            audioFile !== null ||
+            processed ||
+            SESSION_PROVIDER_IDS.some(
+              (provider) => (sessionProviderKeys[provider]?.length ?? 0) > 0,
+            )) && (
             <button type="button" onClick={reset} disabled={busy} className="inline-flex min-h-10 w-fit items-center gap-2 rounded-xl border border-[#14213d]/15 bg-white/60 px-4 text-sm font-bold hover:bg-white disabled:opacity-50">
               <RotateCcw className="size-4" /> {t("app.reset")}
             </button>
@@ -2717,7 +3223,10 @@ export function LectureWeaver(
               <SpokenSourceCard
                 key={spec.sourceType}
                 mode={spokenSourceMode}
+                transcriptInputKind={transcriptInputKind}
                 transcriptFile={files.transcript}
+                pastedTranscript={pastedTranscript}
+                pastedTranscriptState={pastedTranscriptState}
                 audioFile={audioFile}
                 transcriptionState={transcriptionState}
                 inputKey={inputKey}
@@ -2725,6 +3234,9 @@ export function LectureWeaver(
                 audioConfigured={audioConfigured}
                 onModeChange={chooseSpokenSourceMode}
                 onTranscriptSelect={(file) => updateFile("transcript", file)}
+                onPastedTranscriptChange={changePastedTranscript}
+                onUsePastedTranscript={() => void acceptPastedTranscript()}
+                onClearPastedTranscript={clearPastedTranscript}
                 onAudioSelect={chooseAudioFile}
                 onTranscribe={() => void transcribeAudio()}
                 t={t}
@@ -2748,9 +3260,15 @@ export function LectureWeaver(
         <ProviderControls
           catalog={providers}
           target={target}
+          sessionKeys={sessionProviderKeys}
+          kimiRegion={sessionKimiRegion}
           disabled={busy}
           onProviderChange={chooseProvider}
           onModelChange={chooseModel}
+          onSessionKeyChange={changeSessionProviderKey}
+          onClearSessionKey={clearSessionProviderKey}
+          onClearAllSessionKeys={clearAllSessionProviderKeys}
+          onKimiRegionChange={setSessionKimiRegion}
           t={t}
         />
 
@@ -2775,7 +3293,7 @@ export function LectureWeaver(
               {loading && loadingKind === "local" ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
               {t("upload.buildLocal")}
             </button>
-            {selectedProvider?.configured === true && target !== null && (
+            {selectedProviderReady && selectedProvider !== undefined && target !== null && (
               <button
                 type="button"
                 disabled={!ready || loading}
@@ -2814,7 +3332,7 @@ export function LectureWeaver(
               provider={selectedProvider}
               onTryDemo={() => void tryDemo()}
               onAnalyzeLive={
-                selectedProvider?.configured === true
+                selectedProviderReady
                   ? () => void retryLiveAnalysis()
                   : undefined
               }
@@ -2830,6 +3348,7 @@ export function LectureWeaver(
                 result={result}
                 view={resultView}
                 audioConfigured={audioConfigured}
+                audioSessionApiKey={openAiSessionApiKey}
                 onViewChange={setResultView}
                 onOpenAssessment={openAssessmentEvidence}
                 onOpenSection={openSectionEvidence}

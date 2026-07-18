@@ -284,6 +284,53 @@ const multiProviderCatalog = PublicProviderCatalogSchema.parse({
   ],
 });
 
+const temporaryKeyCatalog = PublicProviderCatalogSchema.parse({
+  providers: [
+    {
+      id: "deepseek",
+      label: "DeepSeek",
+      description: "Temporary-key DeepSeek provider.",
+      configured: false,
+      defaultModel: "deepseek-v4-pro",
+      models: [
+        {
+          id: "deepseek-v4-pro",
+          label: "DeepSeek V4 Pro",
+          description: "Mocked live model.",
+        },
+      ],
+    },
+    {
+      id: "kimi",
+      label: "Kimi",
+      description: "Temporary-key Kimi provider.",
+      configured: false,
+      defaultModel: "kimi-k3",
+      models: [
+        {
+          id: "kimi-k3",
+          label: "Kimi K3",
+          description: "Mocked alternate model.",
+        },
+      ],
+    },
+    {
+      id: "openai",
+      label: "OpenAI",
+      description: "Temporary-key OpenAI provider.",
+      configured: false,
+      defaultModel: "gpt-5.6",
+      models: [
+        {
+          id: "gpt-5.6",
+          label: "GPT-5.6 Sol",
+          description: "Mocked OpenAI model.",
+        },
+      ],
+    },
+  ],
+});
+
 const kimiLiveResult: AnalysisResult = {
   ...liveResult,
   origin: {
@@ -374,7 +421,7 @@ afterEach(() => {
 });
 
 describe("LectureWeaver client workflow", () => {
-  it("switches the interface between English and Simplified Chinese", async () => {
+  it("switches the interface among English, Chinese, Japanese, and Korean", async () => {
     const user = userEvent.setup();
 
     render(<LectureWeaver />);
@@ -400,7 +447,31 @@ describe("LectureWeaver client workflow", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("button", { name: "语言: English" }),
+      screen.getByRole("button", { name: "语言: 日本語" }),
+    );
+
+    expect(document.documentElement).toHaveAttribute("lang", "ja");
+    expect(
+      screen.getByRole("heading", {
+        name: /講義を、本当に\s+学べるノートへ。/,
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("API キーはどこに設定しますか？")).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", { name: "言語: 한국어" }),
+    );
+
+    expect(document.documentElement).toHaveAttribute("lang", "ko");
+    expect(
+      screen.getByRole("heading", {
+        name: /강의를 실제로\s+공부할 수 있는 노트로./,
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("API 키는 어디에 설정하나요?")).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", { name: "언어: English" }),
     );
 
     expect(document.documentElement).toHaveAttribute("lang", "en");
@@ -488,6 +559,10 @@ describe("LectureWeaver client workflow", () => {
     );
     expect(screen.getByLabelText("Choose transcript file")).toBeEnabled();
     expect(screen.getByLabelText("Choose existing notes file")).toBeEnabled();
+    await user.type(
+      screen.getByLabelText("Temporary DeepSeek API key"),
+      "temporary-demo-guard-key-123456",
+    );
 
     await user.click(
       screen.getByRole("button", { name: "Try the sample lecture" }),
@@ -710,6 +785,216 @@ describe("LectureWeaver client workflow", () => {
     expect(retriedFiles?.slides).toBe(replacementPdf);
   });
 
+  it("uses a masked current-tab key for an otherwise unconfigured live provider", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    const temporaryKey = "temporary-deepseek-key-123456";
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis.mockResolvedValue(liveResult);
+
+    render(<LectureWeaver providers={temporaryKeyCatalog} />);
+
+    const deepSeekKeyInput = screen.getByLabelText(
+      "Temporary DeepSeek API key",
+    );
+    expect(deepSeekKeyInput).toHaveAttribute("type", "password");
+    expect(deepSeekKeyInput).toHaveAttribute("autocomplete", "off");
+    expect(deepSeekKeyInput).toHaveAttribute("autocapitalize", "none");
+    expect(deepSeekKeyInput).toHaveAttribute("spellcheck", "false");
+    expect(deepSeekKeyInput).toHaveAttribute("data-1p-ignore", "true");
+    expect(deepSeekKeyInput).toHaveAttribute("data-lpignore", "true");
+    expect(
+      screen.queryByRole("button", {
+        name: "Extract and analyze with DeepSeek",
+      }),
+    ).not.toBeInTheDocument();
+
+    await user.type(deepSeekKeyInput, temporaryKey);
+    expect(screen.getByText("Temporary key active")).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: "Extract and analyze with DeepSeek",
+      }),
+    ).toBeDisabled();
+
+    await user.upload(
+      screen.getByLabelText("Choose slides file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Extract and analyze with DeepSeek",
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Needs a careful pass" }),
+    ).toBeVisible();
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(
+      processed,
+      { provider: "deepseek", model: "deepseek-v4-pro" },
+      { ankiCards: true },
+      { sessionApiKey: temporaryKey },
+    );
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(temporaryKey)).not.toBeInTheDocument();
+    expect(window.location.href).not.toContain(temporaryKey);
+  });
+
+  it("passes the visible Kimi region with a temporary Kimi key", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    const temporaryKey = "temporary-kimi-key-123456";
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis.mockResolvedValue(kimiLiveResult);
+
+    render(<LectureWeaver providers={temporaryKeyCatalog} />);
+    await user.selectOptions(screen.getByLabelText("AI provider"), "kimi");
+    await user.type(
+      screen.getByLabelText("Temporary Kimi API key"),
+      temporaryKey,
+    );
+    const kimiRegion = screen.getByLabelText("Kimi API region");
+    expect(kimiRegion).toHaveValue("");
+    expect(
+      screen.queryByRole("button", { name: "Extract and analyze with Kimi" }),
+    ).not.toBeInTheDocument();
+    expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
+    await user.selectOptions(
+      kimiRegion,
+      "global",
+    );
+    await user.upload(
+      screen.getByLabelText("Choose slides file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Extract and analyze with Kimi" }),
+    );
+
+    await screen.findByText("Live analysis · Kimi · kimi-k3");
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(
+      processed,
+      { provider: "kimi", model: "kimi-k3" },
+      { ankiCards: true },
+      {
+        sessionApiKey: temporaryKey,
+        sessionKimiRegion: "global",
+      },
+    );
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears temporary keys individually, together, on reset, and on pagehide without browser persistence", async () => {
+    const user = userEvent.setup();
+    const storageWrite = vi.spyOn(Storage.prototype, "setItem");
+
+    render(<LectureWeaver providers={temporaryKeyCatalog} />);
+    const openAiInput = screen.getByLabelText("Temporary OpenAI API key");
+    const deepSeekInput = screen.getByLabelText("Temporary DeepSeek API key");
+    const kimiInput = screen.getByLabelText("Temporary Kimi API key");
+    const kimiRegion = screen.getByLabelText("Kimi API region");
+
+    await user.type(openAiInput, "temporary-openai-key-123456");
+    await user.type(deepSeekInput, "temporary-deepseek-key-123456");
+    await user.click(screen.getByRole("button", { name: "Clear OpenAI key" }));
+    expect(openAiInput).toHaveValue("");
+    expect(deepSeekInput).toHaveValue("temporary-deepseek-key-123456");
+
+    await user.type(kimiInput, "temporary-kimi-key-123456");
+    await user.selectOptions(kimiRegion, "global");
+    await user.click(screen.getByRole("button", { name: "Clear Kimi key" }));
+    expect(kimiInput).toHaveValue("");
+    expect(kimiRegion).toHaveValue("");
+
+    await user.type(kimiInput, "temporary-kimi-key-123456");
+    await user.selectOptions(kimiRegion, "cn");
+    await user.click(
+      screen.getByRole("button", { name: "Clear all temporary keys" }),
+    );
+    expect(deepSeekInput).toHaveValue("");
+    expect(kimiInput).toHaveValue("");
+    expect(kimiRegion).toHaveValue("");
+
+    await user.type(deepSeekInput, "temporary-deepseek-key-123456");
+    await user.type(kimiInput, "temporary-kimi-key-123456");
+    await user.selectOptions(kimiRegion, "global");
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(deepSeekInput).toHaveValue("");
+    expect(kimiInput).toHaveValue("");
+    expect(kimiRegion).toHaveValue("");
+
+    await user.type(openAiInput, "temporary-openai-key-123456");
+    await user.type(kimiInput, "temporary-kimi-key-123456");
+    await user.selectOptions(kimiRegion, "cn");
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    expect(openAiInput).toHaveValue("");
+    expect(kimiInput).toHaveValue("");
+    expect(kimiRegion).toHaveValue("");
+    expect(storageWrite).not.toHaveBeenCalled();
+  });
+
+  it("analyzes a preserved source map with a valid temporary provider key", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    const temporaryKey = "temporary-deepseek-source-map-key-123456";
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis.mockResolvedValue(liveResult);
+
+    render(<LectureWeaver providers={temporaryKeyCatalog} />);
+    await user.type(
+      screen.getByLabelText("Temporary DeepSeek API key"),
+      temporaryKey,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose slides file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Build local source map" }),
+    );
+
+    const analyzePreserved = await screen.findByRole("button", {
+      name: "Analyze current source map with DeepSeek",
+    });
+    expect(screen.getByText(/Nothing has been sent to DeepSeek yet/)).toBeVisible();
+    expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
+
+    await user.click(analyzePreserved);
+    await screen.findByText("Live analysis · DeepSeek · deepseek-v4-pro");
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(
+      processed,
+      { provider: "deepseek", model: "deepseek-v4-pro" },
+      { ankiCards: true },
+      { sessionApiKey: temporaryKey },
+    );
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
+  });
+
   it("runs configured live analysis with the selected provider and model", async () => {
     const user = userEvent.setup();
     const selectedFiles = sourceFiles();
@@ -751,6 +1036,7 @@ describe("LectureWeaver client workflow", () => {
       },
       { ankiCards: true },
     );
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
     expect(
       screen.getByText(
         "Live analysis · DeepSeek · deepseek-v4-pro",
@@ -793,6 +1079,7 @@ describe("LectureWeaver client workflow", () => {
       { provider: "deepseek", model: "deepseek-v4-pro" },
       { ankiCards: false },
     );
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "Anki cards · 0" }));
     expect(
       screen.getByRole("heading", { name: "Anki cards were not requested." }),

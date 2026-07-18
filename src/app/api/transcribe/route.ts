@@ -1,5 +1,6 @@
 import {
   AudioTranscriptionLanguageSchema,
+  CredentialModeSchema,
   MAX_AUDIO_MULTIPART_BODY_BYTES,
 } from "@/domain";
 import {
@@ -10,6 +11,11 @@ import {
   audioErrorResponse,
   audioFailureResponse,
 } from "@/lib/ai/audio-http";
+import {
+  resolveSessionProviderKey,
+  SessionProviderKeyError,
+  SESSION_PROVIDER_KEY_HEADER,
+} from "@/lib/ai/session-credential";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -117,7 +123,12 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const keys = new Set(formData.keys());
-  if ([...keys].some((key) => key !== "audio" && key !== "language")) {
+  if (
+    [...keys].some(
+      (key) =>
+        key !== "audio" && key !== "language" && key !== "credentialMode",
+    )
+  ) {
     return audioErrorResponse(
       "invalid_request",
       "The transcription request contains unsupported fields.",
@@ -163,6 +174,47 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  const credentialModeValues = formData.getAll("credentialMode");
+  if (
+    credentialModeValues.length !== 1 ||
+    typeof credentialModeValues[0] !== "string"
+  ) {
+    return audioErrorResponse(
+      "invalid_request",
+      "The credential mode field must appear exactly once.",
+      false,
+      400,
+    );
+  }
+  const credentialMode = CredentialModeSchema.safeParse(
+    credentialModeValues[0],
+  );
+  if (!credentialMode.success) {
+    return audioErrorResponse(
+      "invalid_request",
+      "The credential mode is invalid.",
+      false,
+      400,
+    );
+  }
+
+  let sessionApiKey: string | undefined;
+  try {
+    sessionApiKey = resolveSessionProviderKey(
+      credentialMode.data,
+      request.headers.get(SESSION_PROVIDER_KEY_HEADER),
+    );
+  } catch (error: unknown) {
+    return audioErrorResponse(
+      "invalid_request",
+      error instanceof SessionProviderKeyError
+        ? "The credential mode does not match the supplied OpenAI credential."
+        : "The OpenAI credential could not be read.",
+      false,
+      400,
+    );
+  }
+
   try {
     const upload = await validateAudioUpload(audioFile);
     const result = await transcribeAudioWithOpenAI(
@@ -171,6 +223,8 @@ export async function POST(request: Request): Promise<Response> {
       process.env,
       undefined,
       request.signal,
+      credentialMode.data,
+      sessionApiKey,
     );
     return Response.json(result, {
       status: 200,

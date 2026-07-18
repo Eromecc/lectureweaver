@@ -12,6 +12,11 @@ import {
   type SpeechRequest,
 } from "@/domain";
 
+import {
+  SessionProviderKeyError,
+  sessionProviderKeyHeaders,
+} from "./session-credential";
+
 type AudioFamily = "flac" | "mpeg" | "mp4" | "ogg" | "wav" | "webm";
 
 const EXTENSION_FAMILIES: Readonly<Record<AudioFileExtension, AudioFamily>> = {
@@ -63,6 +68,7 @@ export class AudioClientError extends Error {
 export type AudioClientRequestOptions = {
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
+  sessionApiKey?: string;
 };
 
 type AudioClientRequestInput = typeof fetch | AudioClientRequestOptions;
@@ -70,10 +76,14 @@ type AudioClientRequestInput = typeof fetch | AudioClientRequestOptions;
 function resolveRequestOptions(
   input: AudioClientRequestInput | undefined,
 ): Required<Pick<AudioClientRequestOptions, "fetchImpl">> &
-  Pick<AudioClientRequestOptions, "signal"> {
+  Pick<AudioClientRequestOptions, "signal" | "sessionApiKey"> {
   return typeof input === "function"
     ? { fetchImpl: input }
-    : { fetchImpl: input?.fetchImpl ?? fetch, signal: input?.signal };
+    : {
+        fetchImpl: input?.fetchImpl ?? fetch,
+        signal: input?.signal,
+        sessionApiKey: input?.sessionApiKey,
+      };
 }
 
 function fileExtension(fileName: string): string {
@@ -205,7 +215,7 @@ export async function requestAudioTranscription(
   file: File,
   input?: AudioClientRequestInput,
 ): Promise<AudioTranscriptionSuccess> {
-  const { fetchImpl, signal } = resolveRequestOptions(input);
+  const { fetchImpl, signal, sessionApiKey } = resolveRequestOptions(input);
   await validateAudioFile(file);
   if (signal?.aborted) {
     throw new AudioClientError(
@@ -219,13 +229,27 @@ export async function requestAudioTranscription(
 
   let response: Response;
   try {
+    const credentialHeaders = sessionProviderKeyHeaders(sessionApiKey);
+    const credentialMode =
+      Object.keys(credentialHeaders).length === 0 ? "deployment" : "session";
+    formData.set("credentialMode", credentialMode);
     response = await fetchImpl("/api/transcribe", {
       method: "POST",
+      ...(Object.keys(credentialHeaders).length === 0
+        ? {}
+        : { headers: credentialHeaders }),
       body: formData,
       cache: "no-store",
       ...(signal === undefined ? {} : { signal }),
     });
-  } catch {
+  } catch (error: unknown) {
+    if (error instanceof SessionProviderKeyError) {
+      throw new AudioClientError(
+        "invalid_request",
+        "Enter a valid temporary OpenAI credential.",
+        false,
+      );
+    }
     throw new AudioClientError(
       "provider_error",
       "The transcription service could not be reached.",
@@ -274,7 +298,7 @@ export async function requestStudyGuideSpeech(
       false,
     );
   }
-  const { fetchImpl, signal } = resolveRequestOptions(requestInput);
+  const { fetchImpl, signal, sessionApiKey } = resolveRequestOptions(requestInput);
   if (signal?.aborted) {
     throw new AudioClientError(
       "provider_error",
@@ -285,14 +309,27 @@ export async function requestStudyGuideSpeech(
 
   let response: Response;
   try {
+    const credentialHeaders = sessionProviderKeyHeaders(sessionApiKey);
+    const credentialMode =
+      Object.keys(credentialHeaders).length === 0 ? "deployment" : "session";
     response = await fetchImpl("/api/speech", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request.data),
+      headers: {
+        "Content-Type": "application/json",
+        ...credentialHeaders,
+      },
+      body: JSON.stringify({ ...request.data, credentialMode }),
       cache: "no-store",
       ...(signal === undefined ? {} : { signal }),
     });
-  } catch {
+  } catch (error: unknown) {
+    if (error instanceof SessionProviderKeyError) {
+      throw new AudioClientError(
+        "invalid_request",
+        "Enter a valid temporary OpenAI credential.",
+        false,
+      );
+    }
     throw new AudioClientError(
       "provider_error",
       "The speech service could not be reached.",

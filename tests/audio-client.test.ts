@@ -84,7 +84,98 @@ describe("audio browser client", () => {
     expect(request?.headers).toBeUndefined();
     expect(request?.body).toBeInstanceOf(FormData);
     expect(request?.signal).toBe(controller.signal);
-    expect((request?.body as FormData).get("audio")).toBeInstanceOf(File);
+    const formData = request?.body as FormData;
+    expect(formData.get("audio")).toBeInstanceOf(File);
+    expect(formData.get("credentialMode")).toBe("deployment");
+  });
+
+  it("sends an explicitly supplied temporary credential only in the request header", async () => {
+    const credential = "sk-temporary-audio-123456";
+    const transcriptionFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(transcriptionPayload),
+    );
+    const file = new File(
+      [new Uint8Array([0x49, 0x44, 0x33])],
+      "lecture.mp3",
+      { type: "audio/mpeg" },
+    );
+
+    await requestAudioTranscription(file, {
+      fetchImpl: transcriptionFetch,
+      sessionApiKey: credential,
+    });
+
+    const transcriptionInit = transcriptionFetch.mock.calls[0]?.[1];
+    expect(
+      new Headers(transcriptionInit?.headers).get(
+        "x-lectureweaver-provider-key",
+      ),
+    ).toBe(credential);
+    const transcriptionBody = transcriptionInit?.body as FormData;
+    expect(transcriptionBody.get("credentialMode")).toBe("session");
+    expect([...transcriptionBody.values()]).not.toContain(credential);
+
+    const speechFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3]), {
+        headers: { "Content-Type": "audio/mpeg" },
+      }),
+    );
+    await requestStudyGuideSpeech(
+      {
+        text: "Review retrieval practice.",
+        voice: "marin",
+        format: "mp3",
+      },
+      { fetchImpl: speechFetch, sessionApiKey: credential },
+    );
+
+    const speechInit = speechFetch.mock.calls[0]?.[1];
+    expect(
+      new Headers(speechInit?.headers).get(
+        "x-lectureweaver-provider-key",
+      ),
+    ).toBe(credential);
+    const speechBody = JSON.parse(String(speechInit?.body)) as unknown;
+    expect(speechBody).toEqual({
+      text: "Review retrieval practice.",
+      voice: "marin",
+      format: "mp3",
+      credentialMode: "session",
+    });
+    expect(String(speechInit?.body)).not.toContain(credential);
+  });
+
+  it("rejects an invalid temporary credential before making an audio request", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const file = new File(
+      [new Uint8Array([0x49, 0x44, 0x33])],
+      "lecture.mp3",
+      { type: "audio/mpeg" },
+    );
+
+    await expect(
+      requestAudioTranscription(file, {
+        fetchImpl,
+        sessionApiKey: "bad\ncredential",
+      }),
+    ).rejects.toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+    });
+    await expect(
+      requestStudyGuideSpeech(
+        {
+          text: "Review retrieval practice.",
+          voice: "marin",
+          format: "mp3",
+        },
+        { fetchImpl, sessionApiKey: "short" },
+      ),
+    ).rejects.toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("maps stable server errors and rejects malformed transcription output", async () => {
@@ -148,6 +239,7 @@ describe("audio browser client", () => {
       text: "Retrieval practice strengthens recall.",
       voice: "marin",
       format: "mp3",
+      credentialMode: "deployment",
     });
 
     const wrongType = vi.fn<typeof fetch>().mockResolvedValue(

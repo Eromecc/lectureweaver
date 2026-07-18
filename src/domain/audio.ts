@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { CredentialModeSchema } from "./api";
+
 import {
   MAX_AUDIO_TRANSCRIPT_CHARACTERS,
   MAX_AUDIO_TRANSCRIPT_SEGMENTS,
@@ -201,6 +203,10 @@ export const SpeechRequestSchema = z
   })
   .strict();
 
+export const SpeechApiRequestSchema = SpeechRequestSchema.extend({
+  credentialMode: CredentialModeSchema,
+}).strict();
+
 export const AudioErrorCodeSchema = z.enum([
   "invalid_request",
   "request_too_large",
@@ -246,5 +252,6 @@ export type AudioTranscriptionSuccess = z.infer<
   typeof AudioTranscriptionSuccessSchema
 >;
 export type SpeechRequest = z.infer<typeof SpeechRequestSchema>;
+export type SpeechApiRequest = z.infer<typeof SpeechApiRequestSchema>;
 export type AudioErrorCode = z.infer<typeof AudioErrorCodeSchema>;
 export type AudioError = z.infer<typeof AudioErrorSchema>;

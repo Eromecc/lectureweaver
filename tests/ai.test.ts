@@ -167,12 +167,14 @@ describe("AI provider catalog and request contract", () => {
     const missingNotes = AnalyzeRequestSchema.safeParse({
       provider: "openai",
       model: "gpt-5.6",
+      credentialMode: "deployment",
       outputs: { ankiCards: true },
       chunks: [sourceChunks[0], sourceChunks[1], { ...sourceChunks[1], id: "t2" }],
     });
     const duplicate = AnalyzeRequestSchema.safeParse({
       provider: "openai",
       model: "gpt-5.6",
+      credentialMode: "deployment",
       outputs: { ankiCards: true },
       chunks: [...sourceChunks, { ...sourceChunks[0] }],
     });
@@ -191,10 +193,59 @@ describe("AI provider catalog and request contract", () => {
     }
   });
 
+  it("requires an explicit region only for temporary Kimi credentials", () => {
+    const base = {
+      provider: "kimi" as const,
+      model: "kimi-k3",
+      outputs: { ankiCards: true },
+      chunks: sourceChunks,
+    };
+
+    expect(
+      AnalyzeRequestSchema.safeParse({ ...base, credentialMode: "session" })
+        .success,
+    ).toBe(false);
+    expect(
+      AnalyzeRequestSchema.safeParse({
+        ...base,
+        credentialMode: "session",
+        kimiRegion: "global",
+      }).success,
+    ).toBe(true);
+    expect(
+      AnalyzeRequestSchema.safeParse({
+        ...base,
+        credentialMode: "deployment",
+        kimiRegion: "cn",
+      }).success,
+    ).toBe(false);
+    expect(
+      AnalyzeRequestSchema.safeParse({
+        ...base,
+        provider: "openai",
+        model: "gpt-5.6",
+        credentialMode: "session",
+        kimiRegion: "cn",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires an explicit credential mode", () => {
+    expect(
+      AnalyzeRequestSchema.safeParse({
+        provider: "openai",
+        model: "gpt-5.6",
+        outputs: { ankiCards: true },
+        chunks: sourceChunks,
+      }).success,
+    ).toBe(false);
+  });
+
   it("enforces per-chunk, aggregate, and chunk-count caps", () => {
     const oversizedChunk = AnalyzeRequestSchema.safeParse({
       provider: "openai",
       model: "gpt-5.6",
+      credentialMode: "deployment",
       outputs: { ankiCards: true },
       chunks: [
         { ...sourceChunks[0], text: "x".repeat(MAX_CHUNK_CHARACTERS + 1) },
@@ -212,12 +263,14 @@ describe("AI provider catalog and request contract", () => {
     const aggregate = AnalyzeRequestSchema.safeParse({
       provider: "openai",
       model: "gpt-5.6",
+      credentialMode: "deployment",
       outputs: { ankiCards: true },
       chunks: aggregateChunks,
     });
     const tooMany = AnalyzeRequestSchema.safeParse({
       provider: "openai",
       model: "gpt-5.6",
+      credentialMode: "deployment",
       outputs: { ankiCards: true },
       chunks: Array.from({ length: MAX_SOURCE_CHUNKS + 1 }, (_, index) => ({
         ...sourceChunks[index % sourceChunks.length],
@@ -400,6 +453,7 @@ describe("wire parsing and OpenAI injection", () => {
     const request = AnalyzeRequestSchema.parse({
       provider: "openai",
       model: "gpt-5.6",
+      credentialMode: "deployment",
       outputs: { ankiCards: false },
       chunks: sourceChunks,
     });
@@ -416,6 +470,43 @@ describe("wire parsing and OpenAI injection", () => {
     });
   });
 
+  it("fails closed across mismatched credential modes in the server helper", async () => {
+    const analyzer = vi.fn<ProviderAnalyzer>(async () =>
+      parseModelAnalysisWire(validWireAnalysis()),
+    );
+    const sessionRequest = AnalyzeRequestSchema.parse({
+      provider: "openai",
+      model: "gpt-5.6",
+      credentialMode: "session",
+      outputs: { ankiCards: true },
+      chunks: sourceChunks,
+    });
+    const deploymentRequest = AnalyzeRequestSchema.parse({
+      provider: "openai",
+      model: "gpt-5.6",
+      credentialMode: "deployment",
+      outputs: { ankiCards: true },
+      chunks: sourceChunks,
+    });
+
+    await expect(
+      analyzeWithSelectedProvider(
+        sessionRequest,
+        { OPENAI_API_KEY: "deployment-key-must-not-be-used" },
+        analyzersUsing(analyzer),
+      ),
+    ).rejects.toMatchObject({ code: "invalid_request", status: 400 });
+    await expect(
+      analyzeWithSelectedProvider(
+        deploymentRequest,
+        { OPENAI_API_KEY: "deployment-key-must-not-be-used" },
+        analyzersUsing(analyzer),
+        "unexpected-temporary-key",
+      ),
+    ).rejects.toMatchObject({ code: "invalid_request", status: 400 });
+    expect(analyzer).not.toHaveBeenCalled();
+  });
+
   it("selects the allowlisted global Kimi endpoint on the server", async () => {
     const analyzer = vi.fn<ProviderAnalyzer>(async () =>
       parseModelAnalysisWire(validWireAnalysis()),
@@ -423,6 +514,7 @@ describe("wire parsing and OpenAI injection", () => {
     const request = AnalyzeRequestSchema.parse({
       provider: "kimi",
       model: "kimi-k3",
+      credentialMode: "deployment",
       outputs: { ankiCards: true },
       chunks: sourceChunks,
     });
@@ -441,6 +533,34 @@ describe("wire parsing and OpenAI injection", () => {
     );
   });
 
+  it("uses the temporary Kimi key and its explicit region independently of deployment settings", async () => {
+    const analyzer = vi.fn<ProviderAnalyzer>(async () =>
+      parseModelAnalysisWire(validWireAnalysis()),
+    );
+    const request = AnalyzeRequestSchema.parse({
+      provider: "kimi",
+      model: "kimi-k3",
+      credentialMode: "session",
+      kimiRegion: "global",
+      outputs: { ankiCards: true },
+      chunks: sourceChunks,
+    });
+
+    await analyzeWithSelectedProvider(
+      request,
+      { KIMI_API_KEY: "deployment-key", KIMI_REGION: "invalid" },
+      analyzersUsing(analyzer),
+      "temporary-kimi-key",
+    );
+
+    expect(analyzer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: "temporary-kimi-key",
+        baseUrl: "https://api.moonshot.ai/v1",
+      }),
+    );
+  });
+
   it("fails closed when KIMI_REGION is invalid", async () => {
     const analyzer = vi.fn<ProviderAnalyzer>(async () =>
       parseModelAnalysisWire(validWireAnalysis()),
@@ -454,6 +574,7 @@ describe("wire parsing and OpenAI injection", () => {
     const request = AnalyzeRequestSchema.parse({
       provider: "kimi",
       model: "kimi-k3",
+      credentialMode: "deployment",
       outputs: { ankiCards: true },
       chunks: sourceChunks,
     });

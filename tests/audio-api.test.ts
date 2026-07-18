@@ -12,6 +12,7 @@ import {
   AudioErrorSchema,
   AudioTranscriptionSuccessSchema,
   MAX_AUDIO_FILE_BYTES,
+  SpeechApiRequestSchema,
   SpeechRequestSchema,
 } from "@/domain";
 import {
@@ -85,7 +86,12 @@ function wavFile(type = "audio/wav", name = "lecture.wav"): File {
   return new File([WAV_HEADER], name, { type });
 }
 
-async function multipartRequest(file: File, language?: string): Promise<Request> {
+async function multipartRequest(
+  file: File,
+  language?: string,
+  sessionApiKey?: string,
+  credentialMode: "deployment" | "session" | null = "deployment",
+): Promise<Request> {
   const boundary = "lectureweaver-test-boundary";
   const encoder = new TextEncoder();
   const audio = new Uint8Array(await file.arrayBuffer());
@@ -98,25 +104,55 @@ async function multipartRequest(file: File, language?: string): Promise<Request>
       : encoder.encode(
           `\r\n--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${language}`,
         );
+  const credentialModePart =
+    credentialMode === null
+      ? new Uint8Array()
+      : encoder.encode(
+          `\r\n--${boundary}\r\nContent-Disposition: form-data; name="credentialMode"\r\n\r\n${credentialMode}`,
+        );
   const suffix = encoder.encode(`\r\n--${boundary}--\r\n`);
   const body = new Uint8Array(
-    prefix.byteLength + audio.byteLength + languagePart.byteLength + suffix.byteLength,
+    prefix.byteLength +
+      audio.byteLength +
+      languagePart.byteLength +
+      credentialModePart.byteLength +
+      suffix.byteLength,
   );
   body.set(prefix, 0);
   body.set(audio, prefix.byteLength);
   body.set(languagePart, prefix.byteLength + audio.byteLength);
-  body.set(suffix, prefix.byteLength + audio.byteLength + languagePart.byteLength);
+  body.set(
+    credentialModePart,
+    prefix.byteLength + audio.byteLength + languagePart.byteLength,
+  );
+  body.set(
+    suffix,
+    prefix.byteLength +
+      audio.byteLength +
+      languagePart.byteLength +
+      credentialModePart.byteLength,
+  );
   return new Request("http://localhost/api/transcribe", {
     method: "POST",
-    headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+    headers: {
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      ...(sessionApiKey === undefined
+        ? {}
+        : { "X-LectureWeaver-Provider-Key": sessionApiKey }),
+    },
     body: body.buffer,
   });
 }
 
-function speechRequest(body: unknown): Request {
+function speechRequest(body: unknown, sessionApiKey?: string): Request {
   return new Request("http://localhost/api/speech", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(sessionApiKey === undefined
+        ? {}
+        : { "X-LectureWeaver-Provider-Key": sessionApiKey }),
+    },
     body: JSON.stringify(body),
   });
 }
@@ -184,6 +220,29 @@ describe("audio domain and upload validation", () => {
         text: "x".repeat(4_097),
         voice: "marin",
         format: "mp3",
+      }).success,
+    ).toBe(false);
+    expect(
+      SpeechApiRequestSchema.safeParse({
+        text: "Study this.",
+        voice: "marin",
+        format: "mp3",
+        credentialMode: "session",
+      }).success,
+    ).toBe(true);
+    expect(
+      SpeechApiRequestSchema.safeParse({
+        text: "Study this.",
+        voice: "marin",
+        format: "mp3",
+      }).success,
+    ).toBe(false);
+    expect(
+      SpeechApiRequestSchema.safeParse({
+        text: "Study this.",
+        voice: "marin",
+        format: "mp3",
+        credentialMode: "browser-secret",
       }).success,
     ).toBe(false);
     expect(
@@ -317,6 +376,7 @@ describe("OpenAI audio helpers", () => {
       { OPENAI_API_KEY: "fake-test-key" },
       invoke,
       abortController.signal,
+      "deployment",
     );
 
     expect(result).toEqual({
@@ -356,8 +416,36 @@ describe("OpenAI audio helpers", () => {
     const invoke = vi.fn(async () => providerTranscript());
 
     await expect(
-      transcribeAudioWithOpenAI(upload, undefined, {}, invoke),
+      transcribeAudioWithOpenAI(
+        upload,
+        undefined,
+        {},
+        invoke,
+        undefined,
+        "deployment",
+      ),
     ).rejects.toMatchObject({ code: "provider_not_configured" });
+    await expect(
+      transcribeAudioWithOpenAI(
+        upload,
+        undefined,
+        { OPENAI_API_KEY: "deployment-key-must-not-be-used" },
+        invoke,
+        undefined,
+        "session",
+      ),
+    ).rejects.toMatchObject({ code: "invalid_request", status: 400 });
+    await expect(
+      transcribeAudioWithOpenAI(
+        upload,
+        undefined,
+        { OPENAI_API_KEY: "deployment-key-must-not-be-used" },
+        invoke,
+        undefined,
+        "deployment",
+        "sk-unexpected-session-key",
+      ),
+    ).rejects.toMatchObject({ code: "invalid_request", status: 400 });
     await expect(
       transcribeAudioWithOpenAI(
         upload,
@@ -367,6 +455,8 @@ describe("OpenAI audio helpers", () => {
           OPENAI_TRANSCRIBE_MODEL: "arbitrary-model",
         },
         invoke,
+        undefined,
+        "deployment",
       ),
     ).rejects.toMatchObject({ code: "unsupported_model" });
     expect(invoke).not.toHaveBeenCalled();
@@ -383,6 +473,8 @@ describe("OpenAI audio helpers", () => {
             { start: 1, end: 2, speaker: "B", text: "Overlap" },
           ],
         }),
+        undefined,
+        "deployment",
       ),
     ).rejects.toMatchObject({ code: "provider_invalid_output" });
   });
@@ -397,6 +489,8 @@ describe("OpenAI audio helpers", () => {
         async () => {
           throw new OpenAI.APIConnectionTimeoutError();
         },
+        undefined,
+        "deployment",
       ),
     ).rejects.toMatchObject({
       code: "provider_timeout",
@@ -424,6 +518,8 @@ describe("OpenAI audio helpers", () => {
         async () => {
           throw balanceError;
         },
+        undefined,
+        "deployment",
       ),
     ).rejects.toMatchObject({
       code: "provider_balance",
@@ -449,6 +545,7 @@ describe("OpenAI audio helpers", () => {
       { OPENAI_API_KEY: "fake-test-key" },
       invoke,
       abortController.signal,
+      "deployment",
     );
 
     expect(speech.model).toBe("gpt-4o-mini-tts");
@@ -470,6 +567,8 @@ describe("OpenAI audio helpers", () => {
           OPENAI_TTS_MODEL: "untrusted-tts-model",
         },
         invoke,
+        undefined,
+        "deployment",
       ),
     ).rejects.toMatchObject({ code: "unsupported_model" });
   });
@@ -490,6 +589,8 @@ describe("OpenAI audio helpers", () => {
       request,
       { OPENAI_API_KEY: "fake-test-key" },
       async () => chunkedAudioResponse(mp3Chunks),
+      undefined,
+      "deployment",
     );
     expect(new Uint8Array(await mp3.response.arrayBuffer())).toEqual(
       new Uint8Array([0x49, 0x44, 0x33, 0x04, 0xaa, 0xbb, 0xcc]),
@@ -511,6 +612,8 @@ describe("OpenAI audio helpers", () => {
       wavRequest,
       { OPENAI_API_KEY: "fake-test-key" },
       async () => chunkedAudioResponse(wavChunks),
+      undefined,
+      "deployment",
     );
     expect(new Uint8Array(await wav.response.arrayBuffer())).toEqual(
       new Uint8Array([
@@ -550,6 +653,8 @@ describe("OpenAI audio helpers", () => {
           request,
           { OPENAI_API_KEY: "fake-test-key" },
           async () => response,
+          undefined,
+          "deployment",
         ),
       ).rejects.toMatchObject({
         code: "provider_invalid_output",
@@ -622,6 +727,87 @@ describe("audio API routes", () => {
     ]);
   });
 
+  it("uses a temporary OpenAI credential for transcription without returning it", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    const credential = "sk-temporary-transcription-123456";
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json(providerTranscript()),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await transcribePost(
+      await multipartRequest(wavFile(), undefined, credential, "session"),
+    );
+    const text = await response.text();
+
+    expect(response.status, text).toBe(200);
+    expect(text).not.toContain(credential);
+    expect(
+      fetchMock.mock.calls.some(([input, init]) => {
+        const headers =
+          input instanceof Request
+            ? input.headers
+            : new Headers(init?.headers);
+        return headers.get("Authorization") === `Bearer ${credential}`;
+      }),
+    ).toBe(true);
+  });
+
+  it("never falls back across mismatched transcription credential modes", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "deployment-key-must-not-be-used");
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sessionWithoutHeader = await transcribePost(
+      await multipartRequest(wavFile(), undefined, undefined, "session"),
+    );
+    const deploymentWithHeader = await transcribePost(
+      await multipartRequest(
+        wavFile(),
+        undefined,
+        "sk-unexpected-transcription-key",
+        "deployment",
+      ),
+    );
+
+    for (const response of [sessionWithoutHeader, deploymentWithHeader]) {
+      const responseText = await response.text();
+      const payload = AudioErrorSchema.parse(
+        JSON.parse(responseText) as unknown,
+      );
+      expect(response.status, responseText).toBe(400);
+      expect(payload.error).toMatchObject({
+        code: "invalid_request",
+        retryable: false,
+      });
+      expect(responseText).not.toContain("deployment-key-must-not-be-used");
+      expect(responseText).not.toContain("sk-unexpected-transcription-key");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an omitted transcription credential mode before provider work", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "deployment-key-must-not-be-used");
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await transcribePost(
+      await multipartRequest(wavFile(), undefined, undefined, null),
+    );
+    const responseText = await response.text();
+    const payload = AudioErrorSchema.parse(
+      JSON.parse(responseText) as unknown,
+    );
+
+    expect(response.status, responseText).toBe(400);
+    expect(payload.error).toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+    });
+    expect(responseText).not.toContain("deployment-key-must-not-be-used");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid uploads without calling OpenAI", async () => {
     vi.stubEnv("OPENAI_API_KEY", "fake-route-key");
     const fetchMock = vi.fn<typeof fetch>();
@@ -656,6 +842,7 @@ describe("audio API routes", () => {
         text: "Review retrieval practice.",
         voice: "marin",
         format: "mp3",
+        credentialMode: "deployment",
       }),
     );
 
@@ -671,6 +858,106 @@ describe("audio API routes", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it("uses a temporary OpenAI credential for speech without returning it", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    const credential = "sk-temporary-speech-123456";
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      new Response(new Uint8Array([0x49, 0x44, 0x33, 0x04]), {
+        status: 200,
+        headers: { "Content-Type": "application/octet-stream" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await speechPost(
+      speechRequest(
+        {
+          text: "Study.",
+          voice: "marin",
+          format: "mp3",
+          credentialMode: "session",
+        },
+        credential,
+      ),
+    );
+    const bytes = new Uint8Array(await response.arrayBuffer());
+
+    expect(response.status).toBe(200);
+    expect(bytes).toEqual(new Uint8Array([0x49, 0x44, 0x33, 0x04]));
+    expect(
+      fetchMock.mock.calls.some(([input, init]) => {
+        const headers =
+          input instanceof Request
+            ? input.headers
+            : new Headers(init?.headers);
+        return headers.get("Authorization") === `Bearer ${credential}`;
+      }),
+    ).toBe(true);
+  });
+
+  it("never falls back across mismatched speech credential modes", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "deployment-key-must-not-be-used");
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sessionWithoutHeader = await speechPost(
+      speechRequest({
+        text: "Study.",
+        voice: "marin",
+        format: "mp3",
+        credentialMode: "session",
+      }),
+    );
+    const deploymentWithHeader = await speechPost(
+      speechRequest(
+        {
+          text: "Study.",
+          voice: "marin",
+          format: "mp3",
+          credentialMode: "deployment",
+        },
+        "sk-unexpected-speech-key",
+      ),
+    );
+
+    for (const response of [sessionWithoutHeader, deploymentWithHeader]) {
+      const responseText = await response.text();
+      const payload = AudioErrorSchema.parse(
+        JSON.parse(responseText) as unknown,
+      );
+      expect(response.status, responseText).toBe(400);
+      expect(payload.error).toMatchObject({
+        code: "invalid_request",
+        retryable: false,
+      });
+      expect(responseText).not.toContain("deployment-key-must-not-be-used");
+      expect(responseText).not.toContain("sk-unexpected-speech-key");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an omitted speech credential mode before provider work", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "deployment-key-must-not-be-used");
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await speechPost(
+      speechRequest({ text: "Study.", voice: "marin", format: "mp3" }),
+    );
+    const responseText = await response.text();
+    const payload = AudioErrorSchema.parse(
+      JSON.parse(responseText) as unknown,
+    );
+
+    expect(response.status, responseText).toBe(400);
+    expect(payload.error).toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+    });
+    expect(responseText).not.toContain("deployment-key-must-not-be-used");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects a successful bogus speech body with the stable error envelope", async () => {
     vi.stubEnv("OPENAI_API_KEY", "fake-route-key");
     const fetchMock = vi.fn<typeof fetch>(async () =>
@@ -681,7 +968,12 @@ describe("audio API routes", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await speechPost(
-      speechRequest({ text: "Study.", voice: "cedar", format: "wav" }),
+      speechRequest({
+        text: "Study.",
+        voice: "cedar",
+        format: "wav",
+        credentialMode: "deployment",
+      }),
     );
     const payload = AudioErrorSchema.parse(
       JSON.parse(await response.text()) as unknown,
@@ -703,7 +995,12 @@ describe("audio API routes", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await speechPost(
-      speechRequest({ text: "Study.", voice: "cedar", format: "wav" }),
+      speechRequest({
+        text: "Study.",
+        voice: "cedar",
+        format: "wav",
+        credentialMode: "deployment",
+      }),
     );
     const responseText = await response.text();
     const payload = AudioErrorSchema.parse(JSON.parse(responseText) as unknown);

@@ -16,6 +16,8 @@ export {
 export {
   AnalysisTargetSchema,
   AnalysisOutputOptionsSchema,
+  CredentialModeSchema,
+  KimiRegionSchema,
   AnalyzeErrorCodeSchema,
   AnalyzeErrorSchema,
   AnalyzeRequestSchema,
@@ -45,6 +47,7 @@ export {
   AudioTranscriptionSuccessSchema,
   AudioTtsModelSchema,
   AudioVoiceSchema,
+  SpeechApiRequestSchema,
   SpeechRequestSchema,
   formatAudioTranscriptText,
   normalizeAudioTranscriptSegmentText,
@@ -85,6 +88,8 @@ export type {
 export type {
   AnalysisTarget,
   AnalysisOutputOptions,
+  CredentialMode,
+  KimiRegion,
   AnalyzeError,
   AnalyzeErrorCode,
   AnalyzeRequest,
@@ -107,5 +112,6 @@ export type {
   AudioTranscriptionSuccess,
   AudioTtsModel,
   AudioVoice,
+  SpeechApiRequest,
   SpeechRequest,
 } from "./audio";

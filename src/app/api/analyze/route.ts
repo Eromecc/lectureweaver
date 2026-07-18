@@ -5,6 +5,11 @@ import {
   type AnalyzeErrorCode,
 } from "@/domain";
 import { ProviderRequestError } from "@/lib/ai/errors";
+import {
+  resolveSessionProviderKey,
+  SessionProviderKeyError,
+  SESSION_PROVIDER_KEY_HEADER,
+} from "@/lib/ai/session-credential";
 import { analyzeWithSelectedProvider } from "@/lib/ai/server";
 
 export const runtime = "nodejs";
@@ -121,9 +126,31 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  let sessionApiKey: string | undefined;
+  try {
+    sessionApiKey = resolveSessionProviderKey(
+      parsed.data.credentialMode,
+      request.headers.get(SESSION_PROVIDER_KEY_HEADER),
+    );
+  } catch (error: unknown) {
+    return errorResponse(
+      "invalid_request",
+      error instanceof SessionProviderKeyError
+        ? "The temporary provider credential is missing or invalid."
+        : "The temporary provider credential could not be read.",
+      false,
+      400,
+    );
+  }
+
   try {
     const result = AnalyzeSuccessSchema.parse(
-      await analyzeWithSelectedProvider(parsed.data),
+      await analyzeWithSelectedProvider(
+        parsed.data,
+        process.env,
+        undefined,
+        sessionApiKey,
+      ),
     );
     return Response.json(result, {
       status: 200,

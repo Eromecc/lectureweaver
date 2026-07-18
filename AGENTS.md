@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This is the operating guide for humans and coding agents working on LectureWeaver. The current target is an **evidence-grounded, one-stop study-pack workflow**: preserve the deployable no-key demo and optional multi-provider analysis while accepting either a transcript or uploaded lecture recording, then producing enhanced notes, optional Anki-ready cards, and an optional audio study guide.
+This is the operating guide for humans and coding agents working on LectureWeaver. The current target is an **evidence-grounded, one-stop study-pack workflow**: preserve the deployable no-key demo and optional multi-provider analysis while accepting an uploaded or pasted transcript or an uploaded lecture recording, then producing enhanced notes, optional Anki-ready cards, and an optional audio study guide.
 
 ## Repository structure
 
@@ -41,7 +41,7 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 - Zod schemas are the single source of truth. Infer application types with `z.infer`; do not maintain parallel handwritten core-data interfaces.
 - Keep TypeScript strict. Do not use `any` for core data or broad TypeScript/ESLint suppression comments.
 - Use source types `slides`, `transcript`, `notes`; statuses `covered`, `partial`, `missing`, `contradiction`; importance `core`, `supporting`.
-- A TXT transcript and a validated audio transcription both become `transcript` chunks. Keep later analysis and evidence logic independent of which ingestion path produced them.
+- An uploaded TXT transcript, pasted transcript, and validated audio transcription all become `transcript` chunks. Keep later analysis and evidence logic independent of which ingestion path produced them.
 - Generate structural chunk IDs and trusted locators from parsed structure. Never trust fixture or provider output for source name, locator, heading path, or excerpt.
 - Resolve evidence through a unique chunk map. Reject duplicate IDs, unknown references, invalid source combinations, invalid patch/status combinations, and zero assessments.
 - Covered assessments have no patch. Partial, missing, and contradiction require a nonblank patch.
@@ -62,7 +62,7 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 ## Extraction and demo conventions
 
 - Parse PDF, TXT, and Markdown files in the browser. Dynamically load PDF.js client-side and use its bundled local worker.
-- Support text-based PDF slides, UTF-8 Markdown notes, and either a UTF-8 TXT transcript or a supported completed-audio upload. Do not add live microphone access, browser recording, or realtime transcription.
+- Support text-based PDF slides, UTF-8 Markdown notes, and either an uploaded/pasted UTF-8 transcript or a supported completed-audio upload. Pasted text must enter the same validation, normalization, chunking, and locator pipeline as TXT input. Do not add live microphone access, browser recording, or realtime transcription.
 - Preserve page locators, numbered paragraph locators, Markdown heading paths, validated audio time-range locators, and speaker-labeled transcript excerpts.
 - Recognize Markdown ATX and Setext headings only outside fenced code blocks.
 - Enforce limits centrally: 10 MiB PDF, 1 MiB per text file, 4,000,000-byte audio upload, 120,000 normalized characters total, 100 chunks, 1,800 characters per chunk, and 4,096 narration characters per speech request.
@@ -76,7 +76,7 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 ## Audio boundary
 
 - Before an audio upload begins, the UI must explicitly disclose that raw recorded-audio bytes will cross the application server and be sent to OpenAI, may incur separately billed API usage, and are not persisted or logged by LectureWeaver.
-- `POST /api/transcribe` accepts multipart data with one completed recording only, in FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, or WebM form. The client checks extension, MIME type, nonempty content, and the exact 4,000,000-byte file limit; the server repeats those checks and requires the signature, extension, and MIME type to identify the same format family. Never accept a browser-supplied key or provider base URL.
+- `POST /api/transcribe` accepts multipart data with one completed recording only, in FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, or WebM form. The client checks extension, MIME type, nonempty content, and the exact 4,000,000-byte file limit; the server repeats those checks and requires the signature, extension, and MIME type to identify the same format family. It may accept the bounded temporary-key header described below, but never an arbitrary provider base URL.
 - The OpenAI API currently permits files up to 25 MB, but this Vercel build deliberately caps the audio file at 4,000,000 bytes and the complete multipart request at 4,250,000 bytes so it remains below the [Vercel Function 4.5 MB payload limit](https://vercel.com/docs/functions/limitations#request-body-size). Reject longer files with actionable guidance; do not truncate or automatically split them.
 - Use the OpenAI Transcriptions API with `OPENAI_TRANSCRIBE_MODEL`, defaulting to `gpt-4o-transcribe-diarize`. Request `diarized_json` speaker/time segments with provider-side automatic chunking and fail closed on malformed, unordered, overlapping, non-finite, or blank segments.
 - Convert validated transcription segments into structural `transcript` chunks. Application code owns chunk IDs, source names, locator formatting, and final excerpts; the later analysis model may reference only their IDs.
@@ -91,8 +91,12 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 - Raw files and file bytes never cross `/api/analyze`. Send only the normalized, validated chunks plus the allowlisted provider/model selection. `POST /api/transcribe` is the only raw-source exception.
 - Normalized chunks contain source text. UI and docs must accurately state that live analysis transmits this text to the selected provider.
 - Revalidate content type, body size, source types, chunks, IDs, per-chunk limits, and total limits on the server.
-- The server chooses provider endpoints and reads credentials from its environment. Never accept a browser-supplied key or arbitrary base URL.
-- Keep `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, and `KIMI_API_KEY` server-only. Never use a `NEXT_PUBLIC_` prefix or serialize credentials into the provider catalog.
+- The server always chooses allowlisted provider endpoints. A request uses either a deployment credential from the server environment or an explicitly declared temporary current-tab credential, never an arbitrary base URL.
+- Keep deployment `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, and `KIMI_API_KEY` server-only. Never use a `NEXT_PUBLIC_` prefix or serialize deployment credentials into the provider catalog.
+- Temporary credentials are an explicit opt-in BYOK path. Keep separate OpenAI, DeepSeek, and Kimi values in page memory only; never write them to `localStorage`, `sessionStorage`, cookies, URLs, logs, analytics, React server props, or persistent server state. Mask inputs, disable browser-assisted text transformations, provide clear/reset controls, and clear values on reset, unmount, and `pagehide`.
+- Send a temporary credential only in the bounded `x-lectureweaver-provider-key` header on the same-origin HTTPS request. Send a nonsecret `credentialMode` in every analysis, transcription, and speech request. Session mode without a valid header and deployment mode with a header must both fail closed; never fall back to a deployment key when a temporary key is missing or stripped.
+- OpenAI temporary credentials may enable OpenAI analysis, transcription, and speech. DeepSeek and Kimi temporary credentials enable analysis only. Temporary Kimi use requires an explicit `cn` or `global` choice; do not derive it from deployment configuration.
+- UI and docs must state that a temporary key is visible to the user's browser/device and extensions, crosses the LectureWeaver/Vercel function, and is forwarded only to the selected allowlisted provider. Say “not persisted by LectureWeaver,” not “never leaves the browser” or “guaranteed erased.”
 - ChatGPT/Codex subscription entitlements are not OpenAI Platform API credits. Do not use Codex login tokens or ChatGPT cookies as application credentials.
 - Apply bounded request size, provider timeout, and model-output limits. Treat empty, refused, filtered, truncated, malformed, oversized, or semantically invalid provider output as an error.
 - Map expected failures to the stable API error envelope without leaking provider response bodies, keys, prompts, or internal stack traces.
@@ -134,7 +138,7 @@ Official references:
 
 - Keep the primary path usable by keyboard and touch with semantic labels, visible focus, sufficient contrast, and overlay focus restoration.
 - Keep **Try demo** prominent and no-key.
-- Show configured/unconfigured provider state without revealing credentials.
+- Show deployment-configured, temporary-key-ready, and local-only states without revealing, fingerprinting, or showing a suffix of credentials. Support English, Simplified Chinese, Japanese, and Korean UI catalogs with identical key/placeholder coverage.
 - Distinguish local extraction, audio upload/transcription, live analysis, speech generation, simulated analysis, and source-map-only states honestly.
 - Treat initial, extracting, transcribing, live loading, generating speech, success, empty, validation failure, textless PDF, invalid audio, fingerprint mismatch, provider errors, retry, and reset as first-class states.
 - On narrow screens, prevent horizontal overflow and present evidence as an accessible sheet/dialog.
@@ -148,7 +152,7 @@ Official references:
 Do not add:
 
 - authentication, accounts, databases, server persistence, saved projects, analytics, or payments;
-- user-supplied API keys, arbitrary provider endpoints, or browser-visible secrets;
+- arbitrary provider endpoints, durable browser/server key vaults, saved credentials, or credentials in URLs/body content;
 - Notion, PPTX, OCR, embeddings, vector search, chat, or collaboration;
 - recordings above 4,000,000 bytes, automatic long-recording splitting, live microphone access, in-browser recording, realtime transcription, custom/cloned voices, non-OpenAI audio providers, or multi-speaker podcast generation;
 - real student content, generated credentials, committed `.env` files, or source-text logging;
@@ -159,13 +163,13 @@ Do not add:
 
 ## Public deployment and cost safety
 
-Analysis, transcription, and speech routes spend the deployment owner's provider credits; ChatGPT/Codex subscription usage cannot fund them. Audio uploads also increase bandwidth and request-duration exposure. Existing byte, token, and timeout limits do not prevent distributed abuse. Before a live deployment is public, require an explicit plan for access control or authentication, per-user/IP rate limits, quotas, provider budget alerts or hard limits, monitoring, and an emergency disable path. If those controls are not in scope, recommend a private/access-restricted deployment or omit provider keys and ship only the no-key demo.
+Requests using deployment credentials spend the deployment owner's provider credits; requests using a temporary credential spend the user-supplied provider account. ChatGPT/Codex subscription usage cannot fund either path. Audio uploads also increase bandwidth and request-duration exposure. Existing byte, token, and timeout limits do not prevent distributed abuse of owner-funded routes. Before a live deployment contains deployment keys and is public, require an explicit plan for access control or authentication, per-user/IP rate limits, quotas, provider budget alerts or hard limits, monitoring, and an emergency disable path. If those controls are not in scope, recommend a private/access-restricted deployment or a public deployment with only the no-key demo and temporary BYOK path.
 
 ## Testing expectations
 
 Add focused regression coverage for behavior changes:
 
-- schemas, duplicate IDs, provider catalog/target validation, request limits, and API error envelopes;
+- schemas, duplicate IDs, provider catalog/target validation, request limits, API error envelopes, credential-mode mismatch, no-deployment-key fallback, temporary-key isolation/clearing, and Kimi regional routing;
 - normalization, ordering, locators, chunk caps, Unicode, CRLF, headings, and fenced-code exclusions;
 - audio extension/MIME/signature checks for every allowlisted format, the exact 4,000,000-byte cap, disclosure gating, multipart route handling, transcription target validation, timestamp/speaker segment validation, and deterministic transcript chunk locators;
 - score rounding, all statuses, zero-assessment rejection, enhanced-note mappings, Anki option semantics, evidence hydration, and deterministic Markdown/Anki exports;
@@ -192,13 +196,13 @@ The release is complete only when:
 
 - `npm install`, `npm run lint`, `npm test`, and `npm run build` pass with no provider key required;
 - **Try demo** remains a complete, deterministic, no-request judge path under two minutes;
-- PDF/TXT/Markdown files parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
+- PDF/TXT/Markdown files and pasted transcript text parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
 - configured OpenAI, DeepSeek, and Kimi adapters follow their provider-specific contracts;
 - all provider output passes Zod and semantic validation before trusted hydration;
 - score/counts/Markdown/Anki exports remain application-computed and deterministic;
 - every audit becomes evidence-grounded enhanced notes, and requested Anki output covers all core assessments;
 - requested live audio study guides are derived from validated enhanced notes, clearly disclosed as AI-generated, playable, and downloadable;
 - unconfigured and failed live flows preserve the source map and recovery actions;
-- credentials stay server-only and no source content, audio, transcript, generated speech, or secret is persisted or logged;
+- deployment credentials stay server-only; temporary credentials stay current-tab/request-scoped; no source content, audio, transcript, generated speech, or secret is persisted or logged by LectureWeaver;
 - there is no authentication, database, history, analytics, or payment system;
 - public deployment documentation includes the API-credit and abuse-control warning.

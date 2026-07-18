@@ -5,11 +5,16 @@ import {
   type AnalysisOutputOptions,
   type AnalysisTarget,
   type AnalyzeErrorCode,
+  type KimiRegion,
 } from "@/domain";
 import { buildAnalysisResult, type AnalysisResult } from "@/lib/analysis";
 import type { ProcessedSources } from "@/lib/extraction";
 
 import { getProviderLabel } from "./providers";
+import {
+  SessionProviderKeyError,
+  sessionProviderKeyHeaders,
+} from "./session-credential";
 
 export class LiveAnalysisError extends Error {
   readonly code: AnalyzeErrorCode;
@@ -23,14 +28,56 @@ export class LiveAnalysisError extends Error {
   }
 }
 
+export type LiveAnalysisRequestOptions = {
+  fetchImpl?: typeof fetch;
+  sessionApiKey?: string;
+  sessionKimiRegion?: KimiRegion;
+};
+
+type LiveAnalysisRequestInput = typeof fetch | LiveAnalysisRequestOptions;
+
+function resolveRequestOptions(
+  input: LiveAnalysisRequestInput | undefined,
+): Required<Pick<LiveAnalysisRequestOptions, "fetchImpl">> &
+  Pick<LiveAnalysisRequestOptions, "sessionApiKey" | "sessionKimiRegion"> {
+  return typeof input === "function"
+    ? { fetchImpl: input }
+    : {
+        fetchImpl: input?.fetchImpl ?? fetch,
+        sessionApiKey: input?.sessionApiKey,
+        sessionKimiRegion: input?.sessionKimiRegion,
+      };
+}
+
 export async function requestLiveAnalysis(
   processed: ProcessedSources,
   target: AnalysisTarget,
   outputs: AnalysisOutputOptions,
-  fetchImpl: typeof fetch = fetch,
+  input?: LiveAnalysisRequestInput,
 ): Promise<AnalysisResult> {
+  const { fetchImpl, sessionApiKey, sessionKimiRegion } =
+    resolveRequestOptions(input);
+  let credentialHeaders: Record<string, string>;
+  try {
+    credentialHeaders = sessionProviderKeyHeaders(sessionApiKey);
+  } catch (error: unknown) {
+    if (error instanceof SessionProviderKeyError) {
+      throw new LiveAnalysisError(
+        "invalid_request",
+        "Enter a valid temporary provider credential.",
+        false,
+      );
+    }
+    throw error;
+  }
+  const credentialMode =
+    Object.keys(credentialHeaders).length === 0 ? "deployment" : "session";
   const request = AnalyzeRequestSchema.safeParse({
     ...target,
+    credentialMode,
+    ...(target.provider === "kimi" && credentialMode === "session"
+      ? { kimiRegion: sessionKimiRegion }
+      : {}),
     outputs,
     chunks: processed.chunks,
   });
@@ -46,7 +93,10 @@ export async function requestLiveAnalysis(
   try {
     response = await fetchImpl("/api/analyze", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...credentialHeaders,
+      },
       body: JSON.stringify(request.data),
       cache: "no-store",
     });

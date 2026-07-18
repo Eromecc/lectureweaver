@@ -2,6 +2,7 @@ import type {
   AnalyzeRequest,
   AnalyzeSuccess,
   AnalysisOutputOptions,
+  KimiRegion,
   ModelAnalysis,
   ProviderId,
   SourceChunk,
@@ -19,6 +20,10 @@ import {
 } from "./errors";
 import { analyzeWithOpenAI } from "./openai";
 import { resolveKimiRegion } from "./providers";
+import {
+  resolveSessionProviderKey,
+  SessionProviderKeyError,
+} from "./session-credential";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -68,6 +73,7 @@ const DEFAULT_ANALYZERS: ProviderAnalyzers = {
 function runtimeConfig(
   provider: ProviderId,
   environment: Environment,
+  sessionKimiRegion?: KimiRegion,
 ): {
   apiKey: string | undefined;
   baseUrl?: string;
@@ -80,6 +86,16 @@ function runtimeConfig(
     return {
       apiKey: environment.DEEPSEEK_API_KEY?.trim(),
       baseUrl: "https://api.deepseek.com",
+    };
+  }
+
+  if (sessionKimiRegion !== undefined) {
+    return {
+      apiKey: environment.KIMI_API_KEY?.trim(),
+      baseUrl:
+        sessionKimiRegion === "global"
+          ? KIMI_BASE_URLS.global
+          : KIMI_BASE_URLS.cn,
     };
   }
 
@@ -100,6 +116,7 @@ export async function analyzeWithSelectedProvider(
   request: AnalyzeRequest,
   environment: Environment = process.env,
   analyzers: ProviderAnalyzers = DEFAULT_ANALYZERS,
+  sessionApiKey?: string,
 ): Promise<AnalyzeSuccess> {
   const target = { provider: request.provider, model: request.model };
   const catalog = getPublicProviderCatalog(environment);
@@ -112,7 +129,30 @@ export async function analyzeWithSelectedProvider(
     );
   }
 
-  const config = runtimeConfig(request.provider, environment);
+  const { credentialMode } = request;
+  let resolvedSessionApiKey: string | undefined;
+  try {
+    resolvedSessionApiKey = resolveSessionProviderKey(
+      credentialMode,
+      sessionApiKey,
+    );
+  } catch (error: unknown) {
+    if (error instanceof SessionProviderKeyError) {
+      throw new ProviderRequestError(
+        "invalid_request",
+        "The credential mode does not match a valid temporary provider credential.",
+        400,
+        false,
+      );
+    }
+    throw error;
+  }
+
+  const config = runtimeConfig(
+    request.provider,
+    environment,
+    credentialMode === "session" ? request.kimiRegion : undefined,
+  );
   if (config.configurationError !== undefined) {
     throw new ProviderRequestError(
       "provider_not_configured",
@@ -121,7 +161,9 @@ export async function analyzeWithSelectedProvider(
       false,
     );
   }
-  if (config.apiKey === undefined || config.apiKey.length === 0) {
+  const apiKey =
+    credentialMode === "session" ? resolvedSessionApiKey : config.apiKey;
+  if (apiKey === undefined || apiKey.length === 0) {
     throw new ProviderRequestError(
       "provider_not_configured",
       "The selected model provider is not configured on this deployment.",
@@ -133,7 +175,7 @@ export async function analyzeWithSelectedProvider(
   try {
     const analysis = await analyzers[request.provider]({
       provider: request.provider,
-      apiKey: config.apiKey,
+      apiKey,
       baseUrl: config.baseUrl,
       model: request.model,
       chunks: request.chunks,

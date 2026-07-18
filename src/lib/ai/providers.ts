@@ -1,4 +1,4 @@
-import type { ProviderId } from "@/domain";
+import type { KimiRegion, ProviderId } from "@/domain";
 
 export const PROVIDER_LABELS: Record<ProviderId, string> = {
   openai: "OpenAI",
@@ -9,8 +9,6 @@ export const PROVIDER_LABELS: Record<ProviderId, string> = {
 export function getProviderLabel(provider: ProviderId): string {
   return PROVIDER_LABELS[provider];
 }
-
-export type KimiRegion = "cn" | "global";
 
 export function resolveKimiRegion(
   value: string | undefined,

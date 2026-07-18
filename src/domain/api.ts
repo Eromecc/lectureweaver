@@ -19,6 +19,8 @@ const modelId = nonEmptyText
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "Invalid model id.");
 
 export const ProviderIdSchema = z.enum(["openai", "deepseek", "kimi"]);
+export const CredentialModeSchema = z.enum(["deployment", "session"]);
+export const KimiRegionSchema = z.enum(["cn", "global"]);
 
 export const AnalysisTargetSchema = z
   .object({
@@ -96,11 +98,35 @@ export const AnalyzeRequestSchema = z
   .object({
     provider: ProviderIdSchema,
     model: modelId,
+    credentialMode: CredentialModeSchema,
+    kimiRegion: KimiRegionSchema.optional(),
     outputs: AnalysisOutputOptionsSchema,
     chunks: SourceChunkListSchema.min(3).max(MAX_SOURCE_CHUNKS),
   })
   .strict()
   .superRefine((request, context) => {
+    if (
+      request.provider === "kimi" &&
+      request.credentialMode === "session" &&
+      request.kimiRegion === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Temporary Kimi credentials require an explicit region.",
+        path: ["kimiRegion"],
+      });
+    }
+    if (
+      request.kimiRegion !== undefined &&
+      (request.provider !== "kimi" || request.credentialMode !== "session")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Kimi region is only valid with a temporary Kimi credential.",
+        path: ["kimiRegion"],
+      });
+    }
+
     const chunkIds = new Set<string>();
     const sourceTypes = new Set<z.infer<typeof SourceTypeSchema>>();
     let totalCharacters = 0;
@@ -236,6 +262,8 @@ export const AnalyzeErrorSchema = z
   .strict();
 
 export type ProviderId = z.infer<typeof ProviderIdSchema>;
+export type CredentialMode = z.infer<typeof CredentialModeSchema>;
+export type KimiRegion = z.infer<typeof KimiRegionSchema>;
 export type AnalysisTarget = z.infer<typeof AnalysisTargetSchema>;
 export type AnalysisOutputOptions = z.infer<typeof AnalysisOutputOptionsSchema>;
 export type ProviderModel = z.infer<typeof ProviderModelSchema>;

@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -153,6 +153,13 @@ const configuredAudioProvider = PublicProviderCatalogSchema.parse({
   ],
 });
 
+const temporaryAudioProvider = PublicProviderCatalogSchema.parse({
+  providers: configuredAudioProvider.providers.map((provider) => ({
+    ...provider,
+    configured: false,
+  })),
+});
+
 const transcription: AudioTranscriptionSuccess = {
   model: "gpt-4o-transcribe-diarize",
   fileName: "lecture.mp3",
@@ -254,6 +261,160 @@ afterEach(() => {
 });
 
 describe("LectureWeaver audio workflow", () => {
+  it("keeps all spoken-source modes in a shrink-safe three-column grid", () => {
+    render(<LectureWeaver />);
+
+    const modeGroup = screen.getByRole("group", {
+      name: "Choose spoken source type",
+    });
+    expect(modeGroup).toHaveClass("grid", "grid-cols-3");
+    for (const modeName of ["Transcript TXT", "Paste text", "Lecture audio"]) {
+      expect(
+        within(modeGroup).getByRole("button", { name: modeName }),
+      ).toHaveClass("min-w-0");
+    }
+  });
+
+  it("accepts pasted transcript text through the real TXT file pipeline", async () => {
+    const user = userEvent.setup();
+    const pastedText =
+      "Speaker A: Retrieval practice starts with an attempt.\n\nSpeaker B: Feedback should guide the next attempt.";
+    mockProcessSourceFiles.mockResolvedValue(demoProcessed);
+
+    render(<LectureWeaver />);
+
+    await user.click(screen.getByRole("button", { name: "Paste text" }));
+    const textarea = screen.getByRole("textbox", {
+      name: "Paste transcript text",
+    });
+    fireEvent.change(textarea, { target: { value: pastedText } });
+    await user.click(
+      screen.getByRole("button", { name: "Use pasted transcript" }),
+    );
+
+    expect(await screen.findByText("pasted-transcript.txt")).toBeVisible();
+    expect(screen.getByText(/pasted text ready/)).toBeVisible();
+
+    await user.upload(screen.getByLabelText("Choose slides file"), sourceFiles.slides);
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      sourceFiles.notes,
+    );
+    await user.click(screen.getByRole("button", { name: "Build local source map" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Your local source map is ready." }),
+    ).toBeVisible();
+    const passedSources = mockProcessSourceFiles.mock.calls[0]?.[0];
+    expect(passedSources?.transcript).toMatchObject({
+      name: "pasted-transcript.txt",
+      type: "text/plain",
+    });
+    await expect(passedSources?.transcript.text()).resolves.toBe(pastedText);
+    expect(mockProcessAudioSources).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    await user.click(screen.getByRole("button", { name: "Paste text" }));
+    expect(
+      screen.getByRole("textbox", { name: "Paste transcript text" }),
+    ).toHaveValue("");
+    expect(screen.queryByText("pasted-transcript.txt")).not.toBeInTheDocument();
+  });
+
+  it("shows empty and oversized paste errors and clears the pasted source", async () => {
+    const user = userEvent.setup();
+
+    render(<LectureWeaver />);
+    await user.click(screen.getByRole("button", { name: "Paste text" }));
+    await user.click(
+      screen.getByRole("button", { name: "Use pasted transcript" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Paste transcript text before continuing.",
+    );
+
+    const textarea = screen.getByRole("textbox", {
+      name: "Paste transcript text",
+    });
+    fireEvent.change(textarea, { target: { value: "x".repeat(1_048_577) } });
+    await user.click(
+      screen.getByRole("button", { name: "Use pasted transcript" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /larger than the 1 MiB transcript limit/,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Clear pasted text" }));
+    expect(textarea).toHaveValue("");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("announces pasted-transcript validation and prevents duplicate submission", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<ArrayBuffer>();
+    const pastedText = "A short transcript that is waiting for UTF-8 validation.";
+    vi.spyOn(File.prototype, "arrayBuffer").mockReturnValue(pending.promise);
+
+    render(<LectureWeaver />);
+    await user.click(screen.getByRole("button", { name: "Paste text" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Paste transcript text" }),
+      pastedText,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Use pasted transcript" }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Validating pasted transcript…" }),
+    ).toBeDisabled();
+    expect(
+      screen.getAllByText("Validating pasted transcript…"),
+    ).toHaveLength(2);
+
+    await act(async () => {
+      pending.resolve(new TextEncoder().encode(pastedText).buffer as ArrayBuffer);
+      await pending.promise;
+    });
+
+    expect(await screen.findByText("pasted-transcript.txt")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Update pasted text" }),
+    ).toBeEnabled();
+  });
+
+  it("returns to the checked-in TXT source when Try demo is selected", async () => {
+    const user = userEvent.setup();
+    const processing = deferred<ProcessedSources>();
+    mockLoadDemoFiles.mockResolvedValue(sourceFiles);
+    mockProcessSourceFiles.mockReturnValue(processing.promise);
+    mockRunFixtureAnalysis.mockResolvedValue(demoResult);
+
+    render(<LectureWeaver />);
+    await user.click(screen.getByRole("button", { name: "Paste text" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Paste transcript text" }),
+      "This draft must not replace the included demo transcript.",
+    );
+    await user.click(screen.getByRole("button", { name: "Try the sample lecture" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Transcript TXT" }),
+      ).toHaveAttribute("aria-pressed", "true");
+    });
+    expect(
+      screen.queryByRole("textbox", { name: "Paste transcript text" }),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      processing.resolve(demoProcessed);
+      await processing.promise;
+    });
+    expect(await screen.findByRole("heading", { name: "Enhanced notes" })).toBeVisible();
+    expect(mockRequestTranscription).not.toHaveBeenCalled();
+  });
+
   it("transcribes an explicit audio upload and feeds timestamp chunks into the source map", async () => {
     const user = userEvent.setup();
     const writeText = vi.spyOn(navigator.clipboard, "writeText");
@@ -273,12 +434,14 @@ describe("LectureWeaver audio workflow", () => {
 
     await user.click(screen.getByRole("button", { name: "Lecture audio" }));
     const spokenSource = screen
-      .getByRole("heading", { name: "Transcript or audio" })
+      .getByRole("heading", {
+        name: "Transcript file, pasted text, or audio",
+      })
       .closest("article");
     expect(spokenSource).not.toBeNull();
     expect(
       within(spokenSource as HTMLElement).getByText(
-        /raw audio bytes pass through the LectureWeaver server to OpenAI/,
+        /raw audio passes through the LectureWeaver server to OpenAI/,
       ),
     ).toBeVisible();
     expect(
@@ -434,6 +597,58 @@ describe("LectureWeaver audio workflow", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps selected audio retryable after a temporary OpenAI key is replaced", async () => {
+    const user = userEvent.setup();
+    const firstKey = "temporary-openai-expired-key-123456";
+    const replacementKey = "temporary-openai-replacement-key-123456";
+    const audioFile = new File([new Uint8Array([0x49, 0x44, 0x33])], "lecture.mp3", {
+      type: "audio/mpeg",
+    });
+    mockRequestTranscription
+      .mockRejectedValueOnce(
+        new AudioClientError(
+          "provider_auth",
+          "OpenAI rejected the supplied audio credential.",
+          false,
+        ),
+      )
+      .mockResolvedValueOnce(transcription);
+
+    render(<LectureWeaver providers={temporaryAudioProvider} />);
+    const openAiKeyInput = screen.getByLabelText("Temporary OpenAI API key");
+    await user.type(openAiKeyInput, firstKey);
+    await user.click(screen.getByRole("button", { name: "Lecture audio" }));
+    await user.upload(screen.getByLabelText("Choose lecture audio file"), audioFile);
+    await user.click(
+      await screen.findByRole("button", { name: "Send to OpenAI & transcribe" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "rejected the supplied audio credential",
+    );
+    await user.click(screen.getByRole("button", { name: "Clear OpenAI key" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("lecture.mp3")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "OpenAI audio unavailable" }),
+    ).toBeDisabled();
+
+    await user.type(openAiKeyInput, replacementKey);
+    await user.click(
+      screen.getByRole("button", { name: "Send to OpenAI & transcribe" }),
+    );
+
+    expect(await screen.findByText("Timestamped transcript ready")).toBeVisible();
+    expect(mockRequestTranscription).toHaveBeenCalledTimes(2);
+    expect(mockRequestTranscription).toHaveBeenLastCalledWith(
+      audioFile,
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        sessionApiKey: replacementKey,
+      }),
+    );
+  });
+
   it("disables unconfigured audio before any paid request is made", async () => {
     const user = userEvent.setup();
     const audioFile = new File([new Uint8Array([0x49, 0x44, 0x33])], "lecture.mp3", {
@@ -443,7 +658,7 @@ describe("LectureWeaver audio workflow", () => {
     render(<LectureWeaver />);
     await user.click(screen.getByRole("button", { name: "Lecture audio" }));
     expect(
-      screen.getByText(/OpenAI audio is not configured on this deployment/),
+      screen.getByText(/OpenAI audio is not available yet/),
     ).toBeVisible();
     await user.upload(screen.getByLabelText("Choose lecture audio file"), audioFile);
 
@@ -451,6 +666,78 @@ describe("LectureWeaver audio workflow", () => {
       await screen.findByRole("button", { name: "OpenAI audio unavailable" }),
     ).toBeDisabled();
     expect(mockRequestTranscription).not.toHaveBeenCalled();
+  });
+
+  it("enables OpenAI transcription only with the temporary OpenAI key", async () => {
+    const user = userEvent.setup();
+    const temporaryKey = "temporary-openai-audio-key-123456";
+    const audioFile = new File(
+      [new Uint8Array([0x49, 0x44, 0x33])],
+      "lecture.mp3",
+      { type: "audio/mpeg" },
+    );
+    mockRequestTranscription.mockResolvedValue(transcription);
+
+    render(<LectureWeaver providers={temporaryAudioProvider} />);
+    await user.type(
+      screen.getByLabelText("Temporary DeepSeek API key"),
+      "temporary-deepseek-key-123456",
+    );
+    await user.click(screen.getByRole("button", { name: "Lecture audio" }));
+    await user.upload(screen.getByLabelText("Choose lecture audio file"), audioFile);
+    expect(
+      await screen.findByRole("button", { name: "OpenAI audio unavailable" }),
+    ).toBeDisabled();
+
+    await user.type(
+      screen.getByLabelText("Temporary OpenAI API key"),
+      temporaryKey,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Send to OpenAI & transcribe" }),
+    );
+
+    expect(await screen.findByText("Timestamped transcript ready")).toBeVisible();
+    expect(mockRequestTranscription).toHaveBeenCalledWith(
+      audioFile,
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        sessionApiKey: temporaryKey,
+      }),
+    );
+  });
+
+  it("uses a temporary OpenAI key for explicit speech while the demo remains request-free", async () => {
+    const user = userEvent.setup();
+    const temporaryKey = "temporary-openai-speech-key-123456";
+    mockLoadDemoFiles.mockResolvedValue(sourceFiles);
+    mockProcessSourceFiles.mockResolvedValue(demoProcessed);
+    mockRunFixtureAnalysis.mockResolvedValue(demoResult);
+    mockRequestSpeech.mockResolvedValue({
+      blob: new Blob(["synthetic audio"], { type: "audio/mpeg" }),
+      fileName: "lectureweaver-study-guide.mp3",
+    });
+
+    render(<LectureWeaver providers={temporaryAudioProvider} />);
+    await user.type(
+      screen.getByLabelText("Temporary OpenAI API key"),
+      temporaryKey,
+    );
+    await user.click(screen.getByRole("button", { name: "Try the sample lecture" }));
+    await screen.findByRole("heading", { name: "Enhanced notes" });
+    expect(mockRequestTranscription).not.toHaveBeenCalled();
+    expect(mockRequestSpeech).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Audio guide" }));
+    await user.click(screen.getByRole("button", { name: "Generate audio guide" }));
+
+    expect(mockRequestSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: "marin", format: "mp3" }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        sessionApiKey: temporaryKey,
+      }),
+    );
   });
 
   it("shows a speech error and retries without rebuilding the study pack", async () => {

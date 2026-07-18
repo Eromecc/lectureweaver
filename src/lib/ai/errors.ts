@@ -57,7 +57,7 @@ export function providerHttpError(
   if (status === 401 || status === 403) {
     return new ProviderRequestError(
       "provider_auth",
-      `${providerLabel} rejected the configured API credentials.`,
+      `${providerLabel} rejected the supplied API credentials.`,
       503,
       false,
     );

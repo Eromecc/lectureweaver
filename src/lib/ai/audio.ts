@@ -23,10 +23,15 @@ import {
   type AudioTranscriptionModel,
   type AudioTranscriptionSuccess,
   type AudioTtsModel,
+  type CredentialMode,
   type SpeechRequest,
 } from "@/domain";
 
 import { ProviderRequestError } from "./errors";
+import {
+  resolveSessionProviderKey,
+  SessionProviderKeyError,
+} from "./session-credential";
 
 const AUDIO_PROVIDER_TIMEOUT_MS = 50_000;
 const DEFAULT_TRANSCRIPTION_MODEL = AUDIO_TRANSCRIPTION_MODELS[0];
@@ -251,7 +256,39 @@ export async function validateAudioUpload(
   return { file, fileName, extension, mimeType };
 }
 
-function requireApiKey(environment: Environment): string {
+function requireApiKey(
+  environment: Environment,
+  credentialMode: CredentialMode,
+  sessionApiKey?: string,
+): string {
+  let resolvedSessionKey: string | undefined;
+  try {
+    resolvedSessionKey = resolveSessionProviderKey(
+      credentialMode,
+      sessionApiKey,
+    );
+  } catch (error: unknown) {
+    if (error instanceof SessionProviderKeyError) {
+      throw new AudioRequestError(
+        "invalid_request",
+        "The selected credential mode does not match the supplied credential.",
+        400,
+      );
+    }
+    throw error;
+  }
+
+  if (credentialMode === "session") {
+    if (resolvedSessionKey === undefined) {
+      throw new AudioRequestError(
+        "invalid_request",
+        "The selected credential mode does not match the supplied credential.",
+        400,
+      );
+    }
+    return resolvedSessionKey;
+  }
+
   const apiKey = environment.OPENAI_API_KEY?.trim();
   if (apiKey === undefined || apiKey.length === 0) {
     throw new AudioRequestError(
@@ -319,7 +356,7 @@ function audioProviderHttpError(
   if (status === 401 || status === 403) {
     return new ProviderRequestError(
       "provider_auth",
-      "OpenAI rejected the configured API credentials.",
+      "OpenAI rejected the supplied API credentials.",
       503,
       false,
     );
@@ -404,9 +441,11 @@ export async function transcribeAudioWithOpenAI(
   language: AudioTranscriptionLanguage | undefined,
   environment: Environment = process.env,
   invoke: AudioTranscriptionInvoker = invokeOpenAITranscription,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  credentialMode: CredentialMode,
+  sessionApiKey?: string,
 ): Promise<AudioTranscriptionSuccess> {
-  const apiKey = requireApiKey(environment);
+  const apiKey = requireApiKey(environment, credentialMode, sessionApiKey);
   const model = transcriptionModel(environment);
 
   let raw: unknown;
@@ -599,9 +638,11 @@ export async function createSpeechWithOpenAI(
   request: SpeechRequest,
   environment: Environment = process.env,
   invoke: SpeechInvoker = invokeOpenAISpeech,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  credentialMode: CredentialMode,
+  sessionApiKey?: string,
 ): Promise<SpeechStream> {
-  const apiKey = requireApiKey(environment);
+  const apiKey = requireApiKey(environment, credentialMode, sessionApiKey);
   const model = ttsModel(environment);
 
   let raw: unknown;

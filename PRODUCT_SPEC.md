@@ -6,18 +6,19 @@
 
 **Release:** evidence-grounded, one-stop study-pack workflow with optional audio transcription and narration
 
-LectureWeaver helps students verify whether important lecture content is covered, partially covered, missing, or contradicted in their existing notes, then turns that audit into clearer expanded notes, optional Anki-ready study cards, and an optional audio study guide. A completed lecture recording may replace a prepared TXT transcript.
+LectureWeaver helps students verify whether important lecture content is covered, partially covered, missing, or contradicted in their existing notes, then turns that audit into clearer expanded notes, optional Anki-ready study cards, and an optional audio study guide. An uploaded TXT file, directly pasted transcript, or completed lecture recording may supply the spoken source.
 
 It is not a general summarizer or chatbot. Its core promise is completeness-first repair: findings, rebuilt note sections, and study cards must remain auditable through trusted locators produced from the user's parsed source files.
 
 ## Audience and milestone outcome
 
-The primary user has lecture slides, Markdown notes, and either a transcript or a completed lecture recording, but cannot quickly determine whether the notes preserve important teaching content. Manual comparison and transcription are slow, while ungrounded generation can hide omissions or fabricate support.
+The primary user has lecture slides, Markdown notes, and either transcript text or a completed lecture recording, but cannot quickly determine whether the notes preserve important teaching content. Manual comparison and transcription are slow, while ungrounded generation can hide omissions or fabricate support.
 
 The release serves two entry points:
 
 1. A judge or visitor can understand the product in under two minutes through **Try demo**, with no key, account, or model request.
-2. A deployment owner may configure OpenAI, DeepSeek, and/or Kimi server credentials so users can analyze their own normalized source chunks. OpenAI configuration may additionally enable uploaded-recording transcription and study-guide speech.
+2. A user may enter a temporary current-tab OpenAI, DeepSeek, or Kimi API key to analyze their own normalized source chunks without the app saving that credential. A temporary OpenAI key may additionally enable uploaded-recording transcription and study-guide speech.
+3. A deployment owner may instead configure server credentials for the same provider capabilities.
 
 ## Product principles
 
@@ -27,7 +28,7 @@ The release serves two entry points:
 4. **Repair into action.** The audit must produce a coherent learning guide, not stop at diagnosis.
 5. **Deterministic where possible.** Application code calculates score, counts, ordering, evidence hydration, Markdown assembly, and Anki import formatting.
 6. **Fail closed.** Invalid input or provider output never becomes a plausible-looking result.
-7. **Explicit transmission boundaries.** PDF, TXT, and Markdown parsing stays in the browser. A recorded-audio upload crosses the server/provider boundary only after an explicit disclosure and user action; live analysis sends only normalized chunks.
+7. **Explicit transmission boundaries.** PDF, uploaded/pasted transcript text, and Markdown parsing stays in the browser. A recorded-audio upload crosses the server/provider boundary only after an explicit disclosure and user action; live analysis sends only normalized chunks. A temporary credential crosses the same-origin application function and is forwarded only to the selected allowlisted provider.
 8. **Optional service.** No provider credential is required for the build, source-map flow, or sample demo.
 9. **No hidden persistence.** The release adds no account, database, saved history, analytics, or application-level source storage.
 
@@ -47,11 +48,11 @@ This flow never calls analysis, transcription, or speech services, even when pro
 
 ### Live analysis of user-selected material
 
-1. The user selects one text-based PDF lecture, one UTF-8 TXT transcript, and one UTF-8 Markdown notes file.
-2. The browser validates and parses the raw files locally into normalized chunks with structural IDs and locators. A recorded-audio upload may supply the transcript through the separate flow below.
+1. The user selects one text-based PDF lecture, one UTF-8 Markdown notes file, and either an uploaded UTF-8 TXT transcript or directly pasted transcript text.
+2. The browser validates and parses the raw files/text locally into normalized chunks with structural IDs and locators. Pasted text follows the same UTF-8 size, normalization, chunking, and locator contract as uploaded TXT. A recorded-audio upload may supply the transcript through the separate flow below.
 3. The user chooses a provider/model and whether to create Anki cards. Enhanced notes are always produced.
-4. If that provider is configured, the browser posts only the normalized chunks and selected target to `/api/analyze`.
-5. The server resolves its own allowlisted provider endpoint and server-only key. The client cannot submit a key or arbitrary base URL.
+4. If the selected provider has either a deployment credential or a valid temporary current-tab credential, the browser posts only the normalized chunks, selected target, and nonsecret credential mode to `/api/analyze`.
+5. The server resolves an allowlisted endpoint and uses exactly the declared credential path. A temporary key is carried only in a bounded same-origin request header; a missing/stripped temporary header never falls back to a deployment key. The client cannot submit an arbitrary base URL or model ID.
 6. The adapter requests a structured analysis and maps provider failures to a stable application error contract.
 7. The result must pass the wire Zod schema, domain Zod schema, uniqueness/reference validation, and evidence/status semantic rules.
 8. The browser hydrates trusted evidence from its local chunk map and calculates deterministic score, counts, ordering, enhanced Markdown, changes-only Markdown, and Anki import text.
@@ -75,15 +76,15 @@ This flow never calls analysis, transcription, or speech services, even when pro
 
 ### Unconfigured or failed live analysis
 
-- If the selected provider has no server key, no chunks are sent; valid input displays a local source map and offers **Try demo**.
-- If a provider rejects, times out, rate-limits, truncates, or returns invalid output, the source map remains available and the user can retry or choose another configured provider.
+- If the selected provider has neither a deployment key nor a valid temporary key, no chunks are sent; valid input displays a local source map and offers **Try demo**.
+- If a provider rejects, times out, rate-limits, truncates, or returns invalid output, the source map remains available and the user can retry or choose another ready provider.
 - Replacing or resetting files clears stale analysis output.
 
 ## Functional requirements
 
 ### Input, extraction, and limits
 
-- Accept PDF for slides, Markdown (`.md`) for notes, and either TXT or a supported completed-audio upload for the transcript source.
+- Accept PDF for slides, Markdown (`.md`) for notes, and uploaded TXT, directly pasted text, or a supported completed-audio upload for the transcript source.
 - Validate extension, MIME compatibility, file size, PDF/audio signatures where applicable, and UTF-8/binary safety.
 - Allow recorded-audio extensions/formats FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, and WebM only. The client validates extension, MIME, nonempty content, and size; the server repeats those checks and requires the detected file signature, extension, and MIME type to identify the same format family.
 - Enforce 10 MiB PDF, 1 MiB per text file, 4,000,000 bytes per recorded-audio upload, 120,000 normalized characters total, 100 chunks total, 1,800 characters per chunk, and 4,096 narration characters per speech request.
@@ -97,8 +98,12 @@ This flow never calls analysis, transcription, or speech services, even when pro
 
 ### Provider catalog and configuration
 
-- Provider keys are optional, server-only environment variables.
-- The catalog reports configured status and an allowlisted set of model IDs without exposing any credential.
+- Deployment provider keys are optional, server-only environment variables. Never expose them through the provider catalog or a `NEXT_PUBLIC_` variable.
+- A user may alternatively enter separate temporary OpenAI, DeepSeek, or Kimi keys. LectureWeaver holds them only in current-page memory, sends the selected key in a bounded same-origin header, and does not save it to browser storage, cookies, URLs, logs, analytics, server persistence, or source/result objects.
+- Temporary key inputs are masked and clearable. Reset, component teardown, and `pagehide` clear them from application state. This is an application non-persistence guarantee, not forensic erasure: the local browser/device, developer tools, extensions, the Vercel function, and the selected provider remain inside the disclosure boundary.
+- Each request declares `credentialMode`. Session mode without a valid matching header and deployment mode with a temporary header fail closed. OpenAI temporary keys can enable analysis/transcription/speech; DeepSeek and Kimi temporary keys enable analysis only.
+- Temporary Kimi users explicitly select `cn` or `global`; deployment Kimi continues to use `KIMI_REGION`. No request infers a temporary key's region from deployment configuration.
+- The catalog reports deployment-configured status and an allowlisted set of model IDs without exposing any credential.
 - Environment defaults are:
 
   | Provider | Key | Model variable | Default |
@@ -120,7 +125,7 @@ This flow never calls analysis, transcription, or speech services, even when pro
 - **DeepSeek:** use OpenAI-compatible Chat Completions JSON Output with thinking disabled for this extraction contract. Because JSON Output does not guarantee schema adherence and may return empty content, parse and validate locally and fail closed.
 - **Kimi:** use OpenAI-compatible Chat Completions with `response_format.type=json_schema`, `strict: true`, and a bounded `max_completion_tokens` value. Parse only the final message content.
 - Provider-specific request fields must remain isolated; API compatibility does not imply identical parameter support.
-- `/api/analyze` and `/api/speech` accept validated JSON; `/api/transcribe` accepts only the bounded multipart audio contract. Every server route applies content/size validation, timeouts, response-cache disabling, allowlisted targets, and server-owned credentials/endpoints.
+- `/api/analyze` and `/api/speech` accept validated JSON; `/api/transcribe` accepts only the bounded multipart audio contract. Every server route applies content/size validation, timeouts, response-cache disabling, allowlisted targets/endpoints, explicit credential-mode checks, and secret-safe error mapping.
 
 Current official references:
 
@@ -181,8 +186,9 @@ When speech is requested for a live result, derive narration from the validated 
 ### Presentation and states
 
 - Keep **Try demo** prominent and usable without configuration.
-- Provide accessible provider/model controls with configured-state labeling.
-- Explain that PDF/TXT/Markdown files stay local, while recorded-audio bytes are transmitted to OpenAI only after explicit disclosure and confirmation; normalized chunks are transmitted only for configured live analysis.
+- Provide accessible provider/model controls with deployment-configured, temporary-key-ready, and local-only labeling, plus masked/clearable key inputs and explicit Kimi region selection.
+- Provide complete English, Simplified Chinese, Japanese, and Korean interface catalogs while preserving source text, provider/model IDs, filenames, and generated study content verbatim.
+- Explain that PDF/TXT/Markdown and pasted transcript text stay local, while recorded-audio bytes are transmitted to OpenAI only after explicit disclosure and confirmation; normalized chunks are transmitted only for explicitly requested live analysis.
 - Distinguish local extraction, audio upload/transcription, live model analysis, speech generation, simulated demo analysis, and source-map-only results honestly.
 - Display score, counts, enhanced notes with a jump-link table of contents, audit filters, changes-only Markdown, Anki previews, audio playback/download, evidence dialogs/sheets, copy feedback, and downloads.
 - Treat initial, extracting, transcribing, live-loading, generating-speech, success, empty, unconfigured, validation failure, textless PDF, invalid audio, fingerprint mismatch, provider refusal/auth/balance/rate-limit/timeout/invalid-output, retry, and reset as first-class states.
@@ -190,12 +196,12 @@ When speech is requested for a live result, derive narration from the validated 
 
 ## Privacy and security
 
-- Raw PDF, TXT, and Markdown files remain in browser memory and are cleared on refresh.
+- Raw PDF, TXT, Markdown, and pasted transcript text remain in browser memory and are cleared on refresh.
 - After explicit disclosure and user action, raw recorded-audio bytes cross the application server and are sent to OpenAI for transcription. They are held only for the active request and are not persisted or logged by the application.
 - Live analysis sends normalized chunks containing source text to the selected provider; the selected provider's data-handling terms apply.
 - Optional speech generation sends validated enhanced-note narration to OpenAI and returns generated audio. The interface must identify the voice as AI-generated.
 - The application does not write audio, transcripts, generated speech, chunks, or results to a database, persistent store, or application log.
-- API keys remain server-only and must never use a `NEXT_PUBLIC_` name.
+- Deployment API keys remain server-only and must never use a `NEXT_PUBLIC_` name. Temporary keys use only the bounded current-tab/header path above and are never persisted by LectureWeaver.
 - User source text is untrusted data, not model instructions; embedded prompt injection must be ignored.
 - User/provider Markdown must render without unsafe raw HTML.
 - Generated Markdown rejects raw HTML, Markdown images, autolinks, Markdown links/references, and bare external URLs before copy or download. Anki fields are HTML-escaped during deterministic export.
@@ -203,13 +209,13 @@ When speech is requested for a live result, derive narration from the validated 
 
 ## Public-deployment cost and abuse requirements
 
-The deployment owner pays for live analysis, transcription, and speech calls; ChatGPT/Codex subscriptions do not cover this usage. Audio also increases bandwidth and request-duration exposure. Request-size, output, and timeout caps reduce accidental cost but do not prevent distributed abuse. A public live deployment requires an explicit operational plan for authentication or access restriction, per-user/IP rate limits, quotas, provider budget alerts or hard limits, monitoring, and an emergency disable path. Without those controls, deploy privately or omit all provider keys and expose only the no-key demo.
+Deployment-key requests spend the deployment owner's credits; temporary-key requests spend the user's provider account. ChatGPT/Codex subscriptions do not cover either API path. Audio also increases bandwidth and request-duration exposure. Request-size, output, and timeout caps reduce accidental cost but do not prevent distributed abuse of owner-funded routes. A public deployment containing deployment keys requires an explicit operational plan for authentication or access restriction, per-user/IP rate limits, quotas, provider budget alerts or hard limits, monitoring, and an emergency disable path. Without those controls, deploy privately or expose only the no-key demo and temporary BYOK path.
 
 ## Out of scope
 
 - Authentication, accounts, user profiles, multi-user isolation, or collaboration
 - Databases, saved projects, server persistence, cross-device history, or analytics
-- User-supplied provider keys or arbitrary provider base URLs
+- Arbitrary provider base URLs/model IDs, saved credential vaults, or keys stored in URLs, request bodies, browser storage, cookies, logs, or persistent server state
 - Payments or an in-app API-credit system
 - Notion, PPTX, OCR, embeddings, vector databases, or chat
 - Recordings above 4,000,000 bytes, automatic long-recording splitting, live microphone access, in-browser recording, realtime transcription, custom/cloned voices, non-OpenAI audio providers, or podcast-style multi-speaker generation
@@ -222,13 +228,14 @@ The release succeeds when:
 - the judge completes the no-key sample workflow in under two minutes;
 - the demo remains deterministic and makes no analysis, transcription, or speech request;
 - a production build passes without environment variables;
-- PDF/TXT/Markdown files parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
-- each configured provider can produce a validated result through its documented adapter contract;
+- PDF/TXT/Markdown files and pasted transcript text parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
+- each deployment-configured or temporary-key-ready provider can produce a validated result through its documented adapter contract;
 - malformed, truncated, refused, or semantically invalid provider output fails closed;
 - evidence metadata comes only from freshly parsed chunks;
 - score, counts, ordering, trusted evidence, Markdown assembly, and Anki export remain deterministic across demo and live results;
 - every result contains a coherent enhanced-note guide, and requested Anki output covers every core assessment;
 - requested live audio study guides are derived from validated enhanced notes, clearly disclosed as AI-generated, playable, and downloadable;
 - unconfigured and failed live flows preserve a useful source map and recovery action;
+- temporary credentials clear on explicit clear/reset/page exit, mode mismatches fail closed without deployment-key fallback, and the demo never consumes them;
 - there is no authentication, database, application persistence, audio/source logging, or committed secret;
 - `npm install`, `npm run lint`, `npm test`, and `npm run build` pass.

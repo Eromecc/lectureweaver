@@ -39,15 +39,21 @@ function analyzeRequest(model = "deepseek-v4-flash"): AnalyzeRequest {
   return {
     provider: "deepseek",
     model,
+    credentialMode: "deployment",
     outputs: { ankiCards: true },
     chunks,
   };
 }
 
-function jsonRequest(body: unknown): Request {
+function jsonRequest(body: unknown, sessionApiKey?: string): Request {
   return new Request("http://localhost/api/analyze", {
     method: "POST",
-    headers: { "Content-Type": "application/json; charset=utf-8" },
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...(sessionApiKey === undefined
+        ? {}
+        : { "X-LectureWeaver-Provider-Key": sessionApiKey }),
+    },
     body: JSON.stringify(body),
   });
 }
@@ -158,6 +164,120 @@ describe("POST /api/analyze", () => {
       message: "The selected model provider is not configured on this deployment.",
       retryable: false,
     });
+  });
+
+  it("uses a validated temporary credential without persisting or returning it", async () => {
+    const credential = "temporary-deepseek-key-123456";
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      expect(new Headers(init?.headers).get("Authorization")).toBe(
+        `Bearer ${credential}`,
+      );
+      return Response.json({
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { content: JSON.stringify(validWireAnalysis()) },
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(
+      jsonRequest(
+        { ...analyzeRequest(), credentialMode: "session" },
+        credential,
+      ),
+    );
+    const text = await response.text();
+    const payload = AnalyzeSuccessSchema.parse(JSON.parse(text) as unknown);
+
+    expect(response.status, text).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(payload.provider).toBe("deepseek");
+    expect(text).not.toContain(credential);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("rejects malformed temporary credentials before provider work", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(
+      jsonRequest(
+        { ...analyzeRequest(), credentialMode: "session" },
+        " bad-key",
+      ),
+    );
+    const text = await response.text();
+    const payload = AnalyzeErrorSchema.parse(JSON.parse(text) as unknown);
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+    });
+    expect(text).not.toContain("bad-key");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to a deployment key when session mode lacks its header", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "deployment-key-must-not-be-used");
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(
+      jsonRequest({ ...analyzeRequest(), credentialMode: "session" }),
+    );
+    const text = await response.text();
+    const payload = AnalyzeErrorSchema.parse(JSON.parse(text) as unknown);
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+    });
+    expect(text).not.toContain("deployment-key-must-not-be-used");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an omitted credential mode before provider work", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "deployment-key-must-not-be-used");
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    const withoutCredentialMode: Partial<AnalyzeRequest> = {
+      ...analyzeRequest(),
+    };
+    delete withoutCredentialMode.credentialMode;
+
+    const response = await POST(jsonRequest(withoutCredentialMode));
+    const text = await response.text();
+    const payload = AnalyzeErrorSchema.parse(JSON.parse(text) as unknown);
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+    });
+    expect(text).not.toContain("deployment-key-must-not-be-used");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a temporary header in deployment mode", async () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "deployment-key-must-not-be-used");
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(
+      jsonRequest(analyzeRequest(), "unexpected-temporary-key"),
+    );
+
+    expect(response.status).toBe(400);
+    expect(AnalyzeErrorSchema.parse(await responsePayload(response)).error).toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("rejects models outside the deployment allowlist", async () => {

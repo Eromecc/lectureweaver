@@ -1,13 +1,19 @@
 import {
   AudioSpeechFormatSchema,
   MAX_SPEECH_INPUT_CHARACTERS,
-  SpeechRequestSchema,
+  SpeechApiRequestSchema,
+  type SpeechRequest,
 } from "@/domain";
 import { createSpeechWithOpenAI } from "@/lib/ai/audio";
 import {
   audioErrorResponse,
   audioFailureResponse,
 } from "@/lib/ai/audio-http";
+import {
+  resolveSessionProviderKey,
+  SessionProviderKeyError,
+  SESSION_PROVIDER_KEY_HEADER,
+} from "@/lib/ai/session-credential";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -106,7 +112,7 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const parsed = SpeechRequestSchema.safeParse(input);
+  const parsed = SpeechApiRequestSchema.safeParse(input);
   if (!parsed.success) {
     return audioErrorResponse(
       "invalid_request",
@@ -116,19 +122,45 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  const { credentialMode } = parsed.data;
+  let sessionApiKey: string | undefined;
+  try {
+    sessionApiKey = resolveSessionProviderKey(
+      credentialMode,
+      request.headers.get(SESSION_PROVIDER_KEY_HEADER),
+    );
+  } catch (error: unknown) {
+    return audioErrorResponse(
+      "invalid_request",
+      error instanceof SessionProviderKeyError
+        ? "The credential mode does not match the supplied OpenAI credential."
+        : "The OpenAI credential could not be read.",
+      false,
+      400,
+    );
+  }
+
+  const speechRequest: SpeechRequest = {
+    text: parsed.data.text,
+    voice: parsed.data.voice,
+    format: parsed.data.format,
+  };
+
   try {
     const speech = await createSpeechWithOpenAI(
-      parsed.data,
+      speechRequest,
       process.env,
       undefined,
       request.signal,
+      credentialMode,
+      sessionApiKey,
     );
     return new Response(speech.response.body, {
       status: 200,
       headers: {
         "Cache-Control": "no-store",
-        "Content-Disposition": `attachment; filename="lectureweaver-study-audio.${parsed.data.format}"`,
-        "Content-Type": speechContentType(parsed.data.format),
+        "Content-Disposition": `attachment; filename="lectureweaver-study-audio.${speechRequest.format}"`,
+        "Content-Type": speechContentType(speechRequest.format),
         "X-Content-Type-Options": "nosniff",
       },
     });
