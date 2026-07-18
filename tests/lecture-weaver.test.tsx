@@ -17,6 +17,7 @@ import {
 } from "@/lib/ai/client";
 import type { DemoAnalysisResult } from "@/lib/demo";
 import {
+  DemoFingerprintMismatchError,
   loadDemoFiles,
   recoverDemoPdfExtraction,
   runFixtureAnalysis,
@@ -1601,6 +1602,74 @@ describe("LectureWeaver client workflow", () => {
       fallbackProcessed,
       { ankiCards: true },
     );
+    expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("shows the checked-in files if both demo extraction paths fail", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles("student.pdf");
+    const demoFiles = sourceFiles("lecture.pdf");
+    const extractionError = new SourceProcessingError(
+      "invalid_pdf",
+      "slides",
+      "The PDF worker could not start.",
+    );
+    mockLoadDemoFiles.mockResolvedValue(demoFiles);
+    mockProcessSourceFiles.mockRejectedValue(extractionError);
+    mockRecoverDemoPdfExtraction.mockRejectedValue(
+      new Error("The included page-text fallback could not be loaded."),
+    );
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    await user.upload(
+      screen.getByLabelText("Choose lecture PDF file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    expect(screen.getByText("student.pdf")).toBeVisible();
+
+    await user.click(
+      screen.getByRole("button", { name: "Try the sample lecture" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "page-text fallback could not be loaded",
+    );
+    expect(screen.getAllByText("lecture.pdf").length).toBeGreaterThan(0);
+    expect(screen.queryByText("student.pdf")).not.toBeInTheDocument();
+  });
+
+  it("never treats a fixture fingerprint mismatch as a PDF compatibility failure", async () => {
+    const user = userEvent.setup();
+    const files = sourceFiles();
+    const expected = {
+      slides: "a".repeat(64),
+      transcript: "b".repeat(64),
+      notes: "c".repeat(64),
+    } as const;
+    const actual = { ...expected, slides: "d".repeat(64) };
+    mockLoadDemoFiles.mockResolvedValue(files);
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRunFixtureAnalysis.mockRejectedValue(
+      new DemoFingerprintMismatchError(expected, actual),
+    );
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    await user.click(
+      screen.getByRole("button", { name: "Try the sample lecture" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "do not match the checked-in demo corpus",
+    );
+    expect(mockRecoverDemoPdfExtraction).not.toHaveBeenCalled();
     expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
   });
 

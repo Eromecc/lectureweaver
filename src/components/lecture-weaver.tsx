@@ -3474,6 +3474,8 @@ export function LectureWeaver(
     await nextPaint();
     try {
       const demoFiles = await loadDemoFiles();
+      setLectureSourceMode("pdf");
+      setFiles(demoFiles);
       setPastedLecture("");
       lecturePasteValidationVersionRef.current += 1;
       setPastedLectureState({ status: "idle" });
