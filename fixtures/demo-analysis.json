@@ -147,5 +147,236 @@
       ],
       "suggestedPatch": "Rereading is useful for orientation or targeted restudy, but familiarity is not evidence of mastery. Practice testing and distributed practice build more durable access; close the material and retrieve before rereading the specific gaps you expose."
     }
+  ],
+  "enhancedNotes": {
+    "title": "Evidence-Based Study Strategies",
+    "overview": "Durable learning depends on effortful retrieval, well-timed review, deliberate comparison among related ideas, and feedback that corrects errors. The strategies below form one connected system: retrieve first, space and vary practice, use feedback to repair the mental model, and treat familiarity as a cue to test rather than proof of mastery.",
+    "sections": [
+      {
+        "id": "section-retrieval-practice",
+        "heading": "Retrieval practice: recall before review",
+        "learningObjective": "Use a retrieve–check–correct cycle instead of relying on recognition.",
+        "changeType": "preserved",
+        "markdown": "Retrieval practice means trying to produce an answer from memory **before** looking at the source. Useful forms include practice questions, a blank-page recall, or explaining an idea without notes.\n\nA reliable cycle is:\n\n1. Learn a small unit.\n2. Close the material and retrieve it.\n3. Check the response against the source.\n4. Restudy only the exposed gaps.\n5. Retrieve again later.\n\nThe benefit comes from reconstructing the idea and correcting the result. Merely recognizing an answer while it is visible does not create the same retrieval opportunity.",
+        "assessmentIds": [
+          "concept-retrieval-practice"
+        ],
+        "evidenceRefs": [
+          {
+            "chunkId": "slides:p0002:c01",
+            "relevance": "Defines retrieval before checking and the learn–retrieve–check–restudy loop."
+          },
+          {
+            "chunkId": "notes:p0002:c01",
+            "relevance": "Preserves the accurate retrieval definition and examples from the existing notes."
+          }
+        ]
+      },
+      {
+        "id": "section-spacing-schedule",
+        "heading": "Spacing: schedule effort across time",
+        "learningObjective": "Build an adaptive review schedule that uses successful effort to set the next interval.",
+        "changeType": "preserved",
+        "markdown": "Spacing distributes practice across multiple sessions instead of concentrating it in one cram. A small amount of forgetting between sessions makes retrieval effortful enough to strengthen later access.\n\nStart with an expanding cadence such as **day 0, 1, 3, 7, and 14**. Treat it as a starting rule rather than a rigid calendar:\n\n- If recall is accurate and reasonably fluent, lengthen the next interval.\n- If recall fails, correct the error and shorten the next interval.\n- Keep reviews cumulative so older topics remain in the queue.\n\nSpacing and retrieval work together: the interval creates the need to retrieve, while the retrieval result tells you how to adjust the interval.",
+        "assessmentIds": [
+          "concept-spacing",
+          "concept-practice-schedule"
+        ],
+        "evidenceRefs": [
+          {
+            "chunkId": "slides:p0003:c01",
+            "relevance": "Provides the spacing mechanism, sample cadence, and adaptive interval rule."
+          },
+          {
+            "chunkId": "notes:p0003:c01",
+            "relevance": "Preserves the accurate anti-cramming explanation."
+          },
+          {
+            "chunkId": "notes:p0004:c01",
+            "relevance": "Preserves the existing adaptive schedule and cumulative review queue."
+          }
+        ]
+      },
+      {
+        "id": "section-desirable-difficulties",
+        "heading": "Desirable difficulties: productive, not arbitrary, effort",
+        "learningObjective": "Distinguish effort that improves retention or transfer from confusion that adds no learning value.",
+        "changeType": "preserved",
+        "markdown": "A desirable difficulty makes practice feel harder now while improving retention or transfer later. Difficulty is productive only when it remains achievable, matches the learning goal, and produces information that helps correct errors.\n\nGeneration before explanation, spacing, and varied practice can be desirable because they require useful mental work. Confusing instructions, impossible tasks, or effort with no feedback are merely difficult. The test is not whether practice feels hard; it is whether the difficulty exercises the target skill and supports correction.",
+        "assessmentIds": [
+          "concept-desirable-difficulties"
+        ],
+        "evidenceRefs": [
+          {
+            "chunkId": "slides:p0004:c01",
+            "relevance": "Defines the achievement, goal-alignment, and correction boundaries."
+          },
+          {
+            "chunkId": "notes:p0005:c01",
+            "relevance": "Preserves the existing distinction between productive effort and confusion."
+          }
+        ]
+      },
+      {
+        "id": "section-interleaving",
+        "heading": "Interleaving: learn to choose the strategy",
+        "learningObjective": "Explain how mixed practice trains discrimination among related problem types.",
+        "changeType": "expanded",
+        "markdown": "Interleaving alternates related categories or problem types within one practice session. Its main benefit is **discrimination**: every new item requires noticing diagnostic features, identifying the problem category, and selecting the appropriate strategy.\n\nBlocked practice can look smoother because the strategy is already known. Interleaving may lower immediate accuracy, but that short-term difficulty can improve later strategy selection and transfer. Use it after learners know the component procedures well enough that comparing categories remains achievable.",
+        "assessmentIds": [
+          "concept-interleaving"
+        ],
+        "evidenceRefs": [
+          {
+            "chunkId": "slides:p0005:c01",
+            "relevance": "Grounds the discrimination mechanism and immediate-accuracy tradeoff."
+          },
+          {
+            "chunkId": "notes:p0006:c01",
+            "relevance": "Shows the existing partial definition that is expanded here."
+          }
+        ]
+      },
+      {
+        "id": "section-feedback-loop",
+        "heading": "Feedback: close the correction loop",
+        "learningObjective": "Apply feedback after a genuine attempt and use it to drive correction and retry.",
+        "changeType": "new",
+        "markdown": "Feedback should follow a genuine attempt soon enough to correct the mental model before an error becomes stable. Use the sequence **attempt → feedback → correction → retry**.\n\nImmediate feedback is often useful for novices, factual errors, and misconceptions that could persist. A brief delay can support reflection on complex judgments, but a long uncorrected delay is risky. Showing the answer before an attempt also removes the retrieval opportunity; feedback is most useful when it responds to observable thinking.",
+        "assessmentIds": [
+          "concept-feedback-loop"
+        ],
+        "evidenceRefs": [
+          {
+            "chunkId": "slides:p0006:c01",
+            "relevance": "Introduces the missing timing principle and four-stage correction loop."
+          },
+          {
+            "chunkId": "transcript:p0006-p0009:c01",
+            "relevance": "Explains when immediate versus briefly delayed feedback is useful."
+          }
+        ]
+      },
+      {
+        "id": "section-rereading",
+        "heading": "Rereading: orientation, not proof of mastery",
+        "learningObjective": "Use retrieval performance rather than familiarity to judge whether learning is durable.",
+        "changeType": "corrected",
+        "markdown": "Rereading can help with initial orientation or targeted restudy, but repeated exposure makes the page feel fluent and familiar. That feeling is not evidence that the idea can be retrieved later.\n\nTo test learning, close the material and retrieve. Compare the response with the source, then reread only the specific gaps that retrieval exposed. Practice testing and distributed practice provide stronger evidence of durable access than familiarity during rereading.",
+        "assessmentIds": [
+          "concept-rereading-fluency"
+        ],
+        "evidenceRefs": [
+          {
+            "chunkId": "slides:p0007:c01",
+            "relevance": "Contrasts rereading fluency with durable retrieval."
+          },
+          {
+            "chunkId": "notes:p0007:c01",
+            "relevance": "Identifies the contradictory mastery claim that this section corrects."
+          }
+        ]
+      }
+    ]
+  },
+  "ankiCards": [
+    {
+      "id": "anki-retrieval-definition",
+      "front": "What makes an activity retrieval practice rather than recognition?",
+      "back": "The learner must produce the answer from memory before looking at it, then check and correct the response.",
+      "assessmentIds": [
+        "concept-retrieval-practice"
+      ],
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0002:c01",
+          "relevance": "Defines retrieval practice and its recognition boundary."
+        }
+      ]
+    },
+    {
+      "id": "anki-spacing-mechanism",
+      "front": "Why can some forgetting between study sessions improve learning?",
+      "back": "It makes later retrieval effortful enough to strengthen access, provided the learner can still retrieve and correct the material.",
+      "assessmentIds": [
+        "concept-spacing"
+      ],
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0003:c01",
+          "relevance": "Explains why spaced retrieval after some forgetting is productive."
+        }
+      ]
+    },
+    {
+      "id": "anki-adaptive-interval",
+      "front": "How should the next study interval change after a successful or failed retrieval?",
+      "back": "Lengthen the interval after accurate, reasonably fluent recall; shorten it after failure, correct the error, and retrieve again.",
+      "assessmentIds": [
+        "concept-practice-schedule"
+      ],
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0003:c01",
+          "relevance": "Provides the adaptive interval rule."
+        }
+      ]
+    },
+    {
+      "id": "anki-desirable-boundary",
+      "front": "What three conditions make a learning difficulty desirable?",
+      "back": "It must remain achievable, match the learning goal, and produce information that lets the learner correct errors.",
+      "assessmentIds": [
+        "concept-desirable-difficulties"
+      ],
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0004:c01",
+          "relevance": "States the boundaries between productive and arbitrary difficulty."
+        }
+      ]
+    },
+    {
+      "id": "anki-interleaving-mechanism",
+      "front": "What mechanism makes interleaving useful?",
+      "back": "Discrimination: each mixed item forces the learner to notice diagnostic features, identify the problem type, and choose the appropriate strategy.",
+      "assessmentIds": [
+        "concept-interleaving"
+      ],
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0005:c01",
+          "relevance": "Names discrimination as the mechanism of interleaving."
+        }
+      ]
+    },
+    {
+      "id": "anki-feedback-loop",
+      "front": "What are the four steps of the feedback correction loop?",
+      "back": "Attempt, feedback, correction, and retry.",
+      "assessmentIds": [
+        "concept-feedback-loop"
+      ],
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0006:c01",
+          "relevance": "Presents the complete correction loop."
+        }
+      ]
+    },
+    {
+      "id": "anki-rereading-fluency",
+      "front": "Why is familiarity during rereading not proof of mastery?",
+      "back": "Repeated exposure can make material feel fluent without showing that it can be retrieved later; mastery should be tested by closing the source and recalling it.",
+      "assessmentIds": [
+        "concept-rereading-fluency"
+      ],
+      "evidenceRefs": [
+        {
+          "chunkId": "slides:p0007:c01",
+          "relevance": "Contrasts familiar feeling with durable access."
+        }
+      ]
+    }
   ]
 }

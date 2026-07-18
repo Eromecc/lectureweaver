@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "LectureWeaver | Find what your notes missed",
+  title: "LectureWeaver | Build an evidence-grounded study pack",
   description:
-    "Compare lecture slides and transcripts against your notes with trusted source evidence.",
+    "Audit lecture coverage, rebuild clearer notes, and create Anki-ready cards with trusted source evidence.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

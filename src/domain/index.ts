@@ -1,9 +1,13 @@
 export {
   AssessmentStatusSchema,
+  AnkiCardSchema,
   ConceptAssessmentSchema,
+  EnhancedNotesSchema,
+  EnhancedNoteSectionSchema,
   EvidenceRefSchema,
   ImportanceSchema,
   ModelAnalysisSchema,
+  NoteChangeTypeSchema,
   SourceChunkListSchema,
   SourceChunkSchema,
   SourceTypeSchema,
@@ -11,6 +15,7 @@ export {
 
 export {
   AnalysisTargetSchema,
+  AnalysisOutputOptionsSchema,
   AnalyzeErrorCodeSchema,
   AnalyzeErrorSchema,
   AnalyzeRequestSchema,
@@ -22,23 +27,64 @@ export {
 } from "./api";
 
 export {
+  AUDIO_FILE_EXTENSIONS,
+  AUDIO_MIME_TYPES,
+  AUDIO_SPEECH_FORMATS,
+  AUDIO_TRANSCRIPTION_MODELS,
+  AUDIO_TTS_MODELS,
+  AUDIO_VOICES,
+  AudioErrorCodeSchema,
+  AudioErrorSchema,
+  AudioFileExtensionSchema,
+  AudioMimeTypeSchema,
+  AudioSpeechFormatSchema,
+  AudioTranscriptionLanguageSchema,
+  AudioTranscriptionFileNameSchema,
+  AudioTranscriptionModelSchema,
+  AudioTranscriptionSegmentSchema,
+  AudioTranscriptionSuccessSchema,
+  AudioTtsModelSchema,
+  AudioVoiceSchema,
+  SpeechRequestSchema,
+  formatAudioTranscriptText,
+  normalizeAudioTranscriptSegmentText,
+  normalizeAudioTranscriptSpeaker,
+} from "./audio";
+
+export {
   MAX_CHUNK_CHARACTERS,
+  MAX_ANKI_BACK_CHARACTERS,
+  MAX_ANKI_CARDS,
+  MAX_ANKI_FRONT_CHARACTERS,
+  MAX_AUDIO_FILE_BYTES,
+  MAX_AUDIO_MULTIPART_BODY_BYTES,
+  MAX_AUDIO_TRANSCRIPT_CHARACTERS,
+  MAX_AUDIO_TRANSCRIPT_SEGMENTS,
+  MAX_ENHANCED_NOTES_CHARACTERS,
+  MAX_ENHANCED_NOTE_SECTIONS,
+  MAX_ENHANCED_NOTE_SECTION_CHARACTERS,
   MAX_EXTRACTED_CHARACTERS,
   MAX_SOURCE_CHUNKS,
+  MAX_SPEECH_INPUT_CHARACTERS,
 } from "./limits";
 
 export type {
   AssessmentStatus,
+  AnkiCard,
   ConceptAssessment,
+  EnhancedNotes,
+  EnhancedNoteSection,
   EvidenceRef,
   Importance,
   ModelAnalysis,
+  NoteChangeType,
   SourceChunk,
   SourceType,
 } from "./schema";
 
 export type {
   AnalysisTarget,
+  AnalysisOutputOptions,
   AnalyzeError,
   AnalyzeErrorCode,
   AnalyzeRequest,
@@ -48,3 +94,18 @@ export type {
   PublicProvider,
   PublicProviderCatalog,
 } from "./api";
+
+export type {
+  AudioError,
+  AudioErrorCode,
+  AudioFileExtension,
+  AudioMimeType,
+  AudioSpeechFormat,
+  AudioTranscriptionLanguage,
+  AudioTranscriptionModel,
+  AudioTranscriptionSegment,
+  AudioTranscriptionSuccess,
+  AudioTtsModel,
+  AudioVoice,
+  SpeechRequest,
+} from "./audio";

@@ -30,7 +30,16 @@ function escapeInlineMarkdown(value: string): string {
   return value.replace(/([\\`*_[\]<>])/g, "\\$1").replace(/\s+/g, " ").trim();
 }
 
-function formatEvidence(evidence: readonly HydratedEvidence[]): string {
+function formatTrustedEvidenceItem(item: HydratedEvidence): string {
+  const heading = item.chunk.headingPath?.length
+    ? ` — ${item.chunk.headingPath.join(" › ")}`
+    : "";
+  return `${item.chunk.sourceName} · ${item.chunk.locator}${heading}`;
+}
+
+export function formatTrustedEvidence(
+  evidence: readonly HydratedEvidence[],
+): string {
   const seenChunkIds = new Set<string>();
   const locators: string[] = [];
 
@@ -40,15 +49,33 @@ function formatEvidence(evidence: readonly HydratedEvidence[]): string {
     }
     seenChunkIds.add(item.chunkId);
 
-    const heading = item.chunk.headingPath?.length
-      ? ` — ${item.chunk.headingPath.map(escapeInlineMarkdown).join(" › ")}`
-      : "";
-    locators.push(
-      `${escapeInlineMarkdown(item.chunk.sourceName)} · ${escapeInlineMarkdown(item.chunk.locator)}${heading}`,
-    );
+    locators.push(formatTrustedEvidenceItem(item));
   }
 
   return locators.join("; ");
+}
+
+function formatMarkdownEvidence(evidence: readonly HydratedEvidence[]): string {
+  const seenChunkIds = new Set<string>();
+  return evidence
+    .filter((item) => {
+      if (seenChunkIds.has(item.chunkId)) return false;
+      seenChunkIds.add(item.chunkId);
+      return true;
+    })
+    .map((item) => escapeInlineMarkdown(formatTrustedEvidenceItem(item)))
+    .join("; ");
+}
+
+function markdownHeadingSlug(value: string): string {
+  const slug = value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, "")
+    .trim()
+    .replace(/[\s-]+/g, "-");
+  return slug || "section";
 }
 
 function sortedActionableAssessments(
@@ -96,10 +123,44 @@ export function generateMarkdownPatch(analysis: HydratedAnalysis): string {
         "",
         assessment.suggestedPatch ?? "",
         "",
-        `> Evidence: ${formatEvidence(assessment.evidence)}`,
+        `> Evidence: ${formatMarkdownEvidence(assessment.evidence)}`,
       );
     }
   }
+
+  return `${output.join("\n").trim()}\n`;
+}
+
+export function generateEnhancedNotesMarkdown(analysis: HydratedAnalysis): string {
+  const sectionHeadings = analysis.enhancedNotes.sections.map(
+    (section, index) => `${index + 1}. ${section.heading}`,
+  );
+  const output = [
+    `# ${escapeInlineMarkdown(analysis.enhancedNotes.title)}`,
+    "",
+    analysis.enhancedNotes.overview,
+    "",
+    "## Contents",
+  ];
+
+  sectionHeadings.forEach((heading) => {
+    output.push(
+      `- [${escapeInlineMarkdown(heading)}](#${markdownHeadingSlug(heading)})`,
+    );
+  });
+
+  analysis.enhancedNotes.sections.forEach((section, index) => {
+    output.push(
+      "",
+      `## ${escapeInlineMarkdown(sectionHeadings[index] ?? section.heading)}`,
+      "",
+      `**Learning objective:** ${escapeInlineMarkdown(section.learningObjective)}`,
+      "",
+      section.markdown,
+      "",
+      `> Evidence: ${formatMarkdownEvidence(section.evidence)}`,
+    );
+  });
 
   return `${output.join("\n").trim()}\n`;
 }

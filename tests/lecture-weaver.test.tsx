@@ -4,14 +4,11 @@ import type { SVGProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  ModelAnalysisSchema,
   PublicProviderCatalogSchema,
   SourceChunkListSchema,
 } from "@/domain";
 import {
-  calculateCoverageMetrics,
-  generateMarkdownPatch,
-  hydrateAnalysis,
+  buildAnalysisResult,
   type AnalysisResult,
 } from "@/lib/analysis";
 import {
@@ -31,11 +28,16 @@ import type { ProcessedSources, SourceFiles } from "@/lib/extraction";
 
 import { LectureWeaver } from "@/components/lecture-weaver";
 
+import { buildTestAnalysis } from "./analysis-fixtures";
+
 vi.mock("lucide-react", () => {
   const Icon = (props: SVGProps<SVGSVGElement>) => <svg {...props} />;
   return {
     AlertTriangle: Icon,
     ArrowRight: Icon,
+    AudioLines: Icon,
+    BookOpen: Icon,
+    Brain: Icon,
     Check: Icon,
     ChevronRight: Icon,
     CircleCheck: Icon,
@@ -43,8 +45,10 @@ vi.mock("lucide-react", () => {
     Download: Icon,
     Eye: Icon,
     FileText: Icon,
+    Headphones: Icon,
     LoaderCircle: Icon,
     Lock: Icon,
+    ListChecks: Icon,
     NotebookPen: Icon,
     Presentation: Icon,
     RotateCcw: Icon,
@@ -52,6 +56,7 @@ vi.mock("lucide-react", () => {
     ShieldCheck: Icon,
     Sparkles: Icon,
     Upload: Icon,
+    Volume2: Icon,
     X: Icon,
   };
 });
@@ -110,10 +115,8 @@ const chunks = SourceChunkListSchema.parse([
   },
 ]);
 
-const modelAnalysis = ModelAnalysisSchema.parse({
-  summary:
-    "The notes preserve one concept, partially cover another, omit a feedback loop, and contradict the source on rereading.",
-  assessments: [
+const modelAnalysis = buildTestAnalysis(
+  [
     {
       id: "retrieval",
       title: "Retrieval practice",
@@ -183,9 +186,12 @@ const modelAnalysis = ModelAnalysisSchema.parse({
       suggestedPatch: "Familiarity from rereading is not evidence of mastery.",
     },
   ],
-});
-
-const hydrated = hydrateAnalysis(modelAnalysis, chunks);
+  {
+    summary:
+      "The notes preserve one concept, partially cover another, omit a feedback loop, and contradict the source on rereading.",
+    includeAnki: true,
+  },
+);
 
 const processed: ProcessedSources = {
   chunks,
@@ -194,10 +200,12 @@ const processed: ProcessedSources = {
 };
 
 const result: DemoAnalysisResult = {
-  origin: { kind: "demo" },
-  hydrated,
-  metrics: calculateCoverageMetrics(modelAnalysis.assessments),
-  markdown: generateMarkdownPatch(hydrated),
+  ...buildAnalysisResult(
+    modelAnalysis,
+    chunks,
+    { kind: "demo" },
+    { ankiCards: true },
+  ),
   fingerprints: {
     slides: "a".repeat(64),
     transcript: "b".repeat(64),
@@ -205,17 +213,33 @@ const result: DemoAnalysisResult = {
   },
 };
 
-const liveResult: AnalysisResult = {
-  hydrated,
-  metrics: calculateCoverageMetrics(modelAnalysis.assessments),
-  markdown: generateMarkdownPatch(hydrated),
-  origin: {
+const liveResult: AnalysisResult = buildAnalysisResult(
+  modelAnalysis,
+  chunks,
+  {
     kind: "live",
     provider: "deepseek",
     providerLabel: "DeepSeek",
     model: "deepseek-v4-pro",
   },
-};
+  { ankiCards: true },
+);
+
+const noAnkiAnalysis = buildTestAnalysis(modelAnalysis.assessments, {
+  summary: modelAnalysis.summary,
+  includeAnki: false,
+});
+const noAnkiLiveResult: AnalysisResult = buildAnalysisResult(
+  noAnkiAnalysis,
+  chunks,
+  {
+    kind: "live",
+    provider: "deepseek",
+    providerLabel: "DeepSeek",
+    model: "deepseek-v4-pro",
+  },
+  { ankiCards: false },
+);
 
 const configuredProviders = PublicProviderCatalogSchema.parse({
   providers: [
@@ -391,16 +415,29 @@ describe("LectureWeaver client workflow", () => {
     expect(
       await screen.findByRole("heading", { name: "Needs a careful pass" }),
     ).toBeVisible();
-    expect(mockRunFixtureAnalysis).toHaveBeenCalledWith(processed);
+    expect(mockRunFixtureAnalysis).toHaveBeenCalledWith(processed, {
+      ankiCards: true,
+    });
     expect(screen.getByText("38")).toBeVisible();
     expect(screen.getByText("4 concepts audited")).toBeVisible();
     expect(screen.getByText("Sample fingerprint verified")).toBeVisible();
     expect(screen.getAllByText("sample.pdf").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Enhanced notes" })).toBeVisible();
+    expect(
+      screen.getByRole("navigation", {
+        name: "Enhanced notes table of contents",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: /Retrieval practice/ }),
+    ).toHaveAttribute("href", "#enhanced-section-1");
+    expect(screen.getByRole("button", { name: "Anki cards · 4" })).toBeVisible();
     expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
   });
 
   it("filters the actionable review queue without hard-coded result cards", async () => {
     const user = await renderReady();
+    await user.click(screen.getByRole("button", { name: "Audit trail" }));
 
     expect(
       screen.getByRole("heading", { name: "Feedback correction loop" }),
@@ -440,6 +477,7 @@ describe("LectureWeaver client workflow", () => {
 
   it("opens trusted evidence in an accessible dialog and restores focus", async () => {
     const user = await renderReady();
+    await user.click(screen.getByRole("button", { name: "Audit trail" }));
     const issueHeading = screen.getByRole("heading", {
       name: "Feedback correction loop",
     });
@@ -571,10 +609,14 @@ describe("LectureWeaver client workflow", () => {
     expect(
       await screen.findByRole("heading", { name: "Needs a careful pass" }),
     ).toBeVisible();
-    expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(processed, {
-      provider: "deepseek",
-      model: "deepseek-v4-pro",
-    });
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(
+      processed,
+      {
+        provider: "deepseek",
+        model: "deepseek-v4-pro",
+      },
+      { ankiCards: true },
+    );
     expect(
       screen.getByText(
         "Live analysis · DeepSeek · deepseek-v4-pro",
@@ -582,6 +624,78 @@ describe("LectureWeaver client workflow", () => {
     ).toBeVisible();
     expect(screen.getByText("DeepSeek · deepseek-v4-pro")).toBeVisible();
     expect(mockRunFixtureAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("honors the optional Anki switch in the live request and result workspace", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis.mockResolvedValue(noAnkiLiveResult);
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    const ankiOption = screen.getByRole("checkbox", {
+      name: /Create Anki cards/,
+    });
+    expect(ankiOption).toBeChecked();
+    await user.click(ankiOption);
+    expect(ankiOption).not.toBeChecked();
+
+    await user.upload(screen.getByLabelText("Choose slides file"), selectedFiles.slides);
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Extract and analyze with DeepSeek" }),
+    );
+
+    await screen.findByRole("heading", { name: "Needs a careful pass" });
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(
+      processed,
+      { provider: "deepseek", model: "deepseek-v4-pro" },
+      { ankiCards: false },
+    );
+    await user.click(screen.getByRole("button", { name: "Anki cards · 0" }));
+    expect(
+      screen.getByRole("heading", { name: "Anki cards were not requested." }),
+    ).toBeVisible();
+  });
+
+  it("preserves the current study pack when changing the next-run Anki option", async () => {
+    const user = await renderReady();
+    const ankiOption = screen.getByRole("checkbox", {
+      name: /Create Anki cards/,
+    });
+
+    await user.click(ankiOption);
+
+    expect(ankiOption).not.toBeChecked();
+    expect(screen.getByRole("heading", { name: "Enhanced notes" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Anki cards · 4" })).toBeVisible();
+  });
+
+  it("opens trusted enhanced-note sources", async () => {
+    const user = await renderReady();
+    const sectionHeading = screen.getByRole("heading", {
+      name: "Retrieval practice",
+    });
+    const sectionCard = sectionHeading.closest("article");
+    expect(sectionCard).not.toBeNull();
+
+    await user.click(
+      within(sectionCard as HTMLElement).getByRole("button", {
+        name: "Inspect section sources",
+      }),
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Retrieval practice" });
+    expect(within(dialog).getByText("Enhanced-note sources")).toBeVisible();
+    expect(within(dialog).getByText("sample.pdf")).toBeVisible();
+    expect(within(dialog).getByText("Page 1")).toBeVisible();
   });
 
   it("preserves the source map after a live failure and retries in place", async () => {
@@ -717,10 +831,14 @@ describe("LectureWeaver client workflow", () => {
     expect(
       await screen.findByText("Live analysis · Kimi · kimi-k3"),
     ).toBeVisible();
-    expect(mockRequestLiveAnalysis).toHaveBeenLastCalledWith(processed, {
-      provider: "kimi",
-      model: "kimi-k3",
-    });
+    expect(mockRequestLiveAnalysis).toHaveBeenLastCalledWith(
+      processed,
+      {
+        provider: "kimi",
+        model: "kimi-k3",
+      },
+      { ankiCards: true },
+    );
     expect(mockProcessSourceFiles).toHaveBeenCalledTimes(1);
   });
 
@@ -752,7 +870,7 @@ describe("LectureWeaver client workflow", () => {
     expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
   });
 
-  it("copies and downloads the exact generated Markdown string", async () => {
+  it("copies and downloads the exact enhanced-notes Markdown string", async () => {
     const user = await renderReady();
     const writeText = vi.spyOn(navigator.clipboard, "writeText");
     let downloadedName: string | null = null;
@@ -760,7 +878,7 @@ describe("LectureWeaver client workflow", () => {
     let downloadedBlob: Blob | null = null;
     vi.mocked(URL.createObjectURL).mockImplementation((blob) => {
       if (!(blob instanceof Blob)) {
-        throw new TypeError("Expected the Markdown download to use a Blob.");
+        throw new TypeError("Expected the enhanced-notes download to use a Blob.");
       }
       downloadedBlob = blob;
       return "blob:lectureweaver-patch";
@@ -772,13 +890,13 @@ describe("LectureWeaver client workflow", () => {
       downloadedHref = this.href;
     });
 
-    await user.click(screen.getByRole("button", { name: "Copy Markdown" }));
-    expect(writeText).toHaveBeenCalledWith(result.markdown);
+    await user.click(screen.getByRole("button", { name: "Copy full notes" }));
+    expect(writeText).toHaveBeenCalledWith(result.enhancedMarkdown);
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
-    expect(screen.getByText("Markdown copied to clipboard.")).toBeInTheDocument();
+    expect(screen.getByText("Copy full notes copied to clipboard.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Download .md" }));
-    expect(downloadedName).toBe("lectureweaver-additions.md");
+    await user.click(screen.getByRole("button", { name: "Export Markdown" }));
+    expect(downloadedName).toBe("lectureweaver-enhanced-notes.md");
     expect(downloadedHref).toContain("blob:lectureweaver-patch");
     expect(downloadedBlob).not.toBeNull();
     const readDownloadedBlob = (): Blob => {
@@ -787,6 +905,40 @@ describe("LectureWeaver client workflow", () => {
       }
       return downloadedBlob;
     };
-    expect(await readDownloadedBlob().text()).toBe(result.markdown);
+    expect(await readDownloadedBlob().text()).toBe(result.enhancedMarkdown);
+  });
+
+  it("previews, copies, and downloads the exact Anki import text", async () => {
+    const user = await renderReady();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText");
+    let downloadedName: string | null = null;
+    let downloadedBlob: Blob | null = null;
+    vi.mocked(URL.createObjectURL).mockImplementation((blob) => {
+      if (!(blob instanceof Blob)) throw new TypeError("Expected an Anki Blob.");
+      downloadedBlob = blob;
+      return "blob:lectureweaver-anki";
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      downloadedName = this.download;
+    });
+
+    await user.click(screen.getByRole("button", { name: "Anki cards · 4" }));
+    expect(screen.getByRole("heading", { name: "4 Anki-ready cards" })).toBeVisible();
+    expect(screen.getByText("What should you know about Retrieval practice?")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Copy Anki text" }));
+    expect(writeText).toHaveBeenCalledWith(result.ankiImportText);
+    await user.click(screen.getByRole("button", { name: "Download Anki .txt" }));
+    expect(downloadedName).toBe("lectureweaver-anki.txt");
+    const readDownloadedBlob = (): Blob => {
+      if (downloadedBlob === null) {
+        throw new Error("The Anki download was not created.");
+      }
+      return downloadedBlob;
+    };
+    expect(await readDownloadedBlob().text()).toBe(result.ankiImportText);
+    expect(readDownloadedBlob().type).toBe("text/plain;charset=utf-8");
   });
 });

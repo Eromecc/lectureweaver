@@ -2,6 +2,7 @@ import {
   AnalyzeErrorSchema,
   AnalyzeRequestSchema,
   AnalyzeSuccessSchema,
+  type AnalysisOutputOptions,
   type AnalysisTarget,
   type AnalyzeErrorCode,
 } from "@/domain";
@@ -25,10 +26,12 @@ export class LiveAnalysisError extends Error {
 export async function requestLiveAnalysis(
   processed: ProcessedSources,
   target: AnalysisTarget,
+  outputs: AnalysisOutputOptions,
   fetchImpl: typeof fetch = fetch,
 ): Promise<AnalysisResult> {
   const request = AnalyzeRequestSchema.safeParse({
     ...target,
+    outputs,
     chunks: processed.chunks,
   });
   if (!request.success) {
@@ -91,10 +94,15 @@ export async function requestLiveAnalysis(
     );
   }
 
-  return buildAnalysisResult(parsed.data.analysis, processed.chunks, {
-    kind: "live",
-    provider: parsed.data.provider,
-    providerLabel: getProviderLabel(parsed.data.provider),
-    model: parsed.data.model,
-  });
+  return buildAnalysisResult(
+    parsed.data.analysis,
+    processed.chunks,
+    {
+      kind: "live",
+      provider: parsed.data.provider,
+      providerLabel: getProviderLabel(parsed.data.provider),
+      model: parsed.data.model,
+    },
+    outputs,
+  );
 }

@@ -1,6 +1,7 @@
 import type {
   AnalyzeRequest,
   AnalyzeSuccess,
+  AnalysisOutputOptions,
   ModelAnalysis,
   ProviderId,
   SourceChunk,
@@ -27,6 +28,7 @@ export type ProviderAnalyzerInput = {
   baseUrl?: string;
   model: string;
   chunks: SourceChunk[];
+  outputs: AnalysisOutputOptions;
 };
 
 export type ProviderAnalyzer = (
@@ -41,23 +43,25 @@ const KIMI_BASE_URLS = {
 } as const;
 
 const DEFAULT_ANALYZERS: ProviderAnalyzers = {
-  openai: ({ apiKey, model, chunks }) =>
-    analyzeWithOpenAI({ apiKey, model, chunks }),
-  deepseek: ({ apiKey, baseUrl, model, chunks }) =>
+  openai: ({ apiKey, model, chunks, outputs }) =>
+    analyzeWithOpenAI({ apiKey, model, chunks, outputs }),
+  deepseek: ({ apiKey, baseUrl, model, chunks, outputs }) =>
     analyzeWithChatCompletions({
       provider: "deepseek",
       apiKey,
       baseUrl: baseUrl ?? "https://api.deepseek.com",
       model,
       chunks,
+      outputs,
     }),
-  kimi: ({ apiKey, baseUrl, model, chunks }) =>
+  kimi: ({ apiKey, baseUrl, model, chunks, outputs }) =>
     analyzeWithChatCompletions({
       provider: "kimi",
       apiKey,
       baseUrl: baseUrl ?? KIMI_BASE_URLS.cn,
       model,
       chunks,
+      outputs,
     }),
 };
 
@@ -133,10 +137,12 @@ export async function analyzeWithSelectedProvider(
       baseUrl: config.baseUrl,
       model: request.model,
       chunks: request.chunks,
+      outputs: request.outputs,
     });
     const validated = validateModelAnalysisAgainstChunks(
       analysis,
       request.chunks,
+      request.outputs,
     );
     return {
       provider: request.provider,

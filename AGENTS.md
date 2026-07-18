@@ -1,18 +1,18 @@
 # AGENTS.md
 
-This is the operating guide for humans and coding agents working on LectureWeaver. The current target is **Milestone 2: preserve the deployable no-key demo and add optional, server-side multi-provider live analysis**.
+This is the operating guide for humans and coding agents working on LectureWeaver. The current target is an **evidence-grounded, one-stop study-pack workflow**: preserve the deployable no-key demo and optional multi-provider analysis while accepting either a transcript or uploaded lecture recording, then producing enhanced notes, optional Anki-ready cards, and an optional audio study guide.
 
 ## Repository structure
 
 ```text
 src/
-  app/                 Next.js entry points, global styles, and /api/analyze
-  components/          Upload, provider selection, progress, results, evidence, patch UI
+  app/                 Next.js entry points, global styles, /api/analyze, /api/transcribe, /api/speech
+  components/          Upload, output options, progress, study-pack views, and evidence UI
   domain/              Strict Zod domain, provider, and API contracts plus shared limits
   lib/
     ai/                Provider catalog, prompts, adapters, wire validation, error mapping
-    analysis/          Semantic validation, trusted evidence, score, result/patch generation
-    extraction/        Browser file validation, PDF/text parsing, normalization, chunking
+    analysis/          Semantic validation, trusted evidence, score, Markdown/Anki generation
+    extraction/        Browser file validation, PDF/text parsing, audio intake, normalization, chunking
     demo/              Sample loading, manifest verification, fixture orchestration
 public/demo/           Synthetic PDF, TXT, Markdown, and fingerprint manifest
 fixtures/              Strictly validated simulated analysis data
@@ -41,9 +41,13 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 - Zod schemas are the single source of truth. Infer application types with `z.infer`; do not maintain parallel handwritten core-data interfaces.
 - Keep TypeScript strict. Do not use `any` for core data or broad TypeScript/ESLint suppression comments.
 - Use source types `slides`, `transcript`, `notes`; statuses `covered`, `partial`, `missing`, `contradiction`; importance `core`, `supporting`.
+- A TXT transcript and a validated audio transcription both become `transcript` chunks. Keep later analysis and evidence logic independent of which ingestion path produced them.
 - Generate structural chunk IDs and trusted locators from parsed structure. Never trust fixture or provider output for source name, locator, heading path, or excerpt.
 - Resolve evidence through a unique chunk map. Reject duplicate IDs, unknown references, invalid source combinations, invalid patch/status combinations, and zero assessments.
 - Covered assessments have no patch. Partial, missing, and contradiction require a nonblank patch.
+- Every assessment must be represented in enhanced notes. Map covered → preserved, partial → expanded, missing → new, and contradiction → corrected.
+- Enhanced-note and Anki evidence must come from linked assessment evidence. Require lecture evidence for every artifact, plus notes evidence for preserved, expanded, and corrected sections.
+- When Anki output is requested, require at least one card and representation of every core assessment. When disabled, require an empty card array.
 - Validate provider output through the strict wire schema, domain schema, and semantic rules before rendering it.
 - Calculate coverage only in application code:
 
@@ -52,15 +56,16 @@ Run lint, tests, and a production build before handing off the milestone. The bu
   ```
 
 - Missing and contradiction contribute zero; importance does not alter the score.
-- Generate Markdown deterministically in missing → partial → contradiction order, core before supporting. Copy and download share the same string.
+- Generate complete-note Markdown in validated section order with a deterministic numbered table of contents; generate changes-only Markdown in missing → partial → contradiction order, core before supporting. Copy and download share the same strings.
+- Generate Anki text deterministically: UTF-8, tab-separated, quoted fields, HTML-escaped content, Basic-card Front/Back/Tags columns, application-derived tags and trusted locators, and a final line feed.
 
 ## Extraction and demo conventions
 
-- Parse raw files in the browser. Dynamically load PDF.js client-side and use its bundled local worker.
-- Support only text-based PDF slides, UTF-8 TXT transcripts, and UTF-8 Markdown notes.
-- Preserve page locators, numbered paragraph locators, and Markdown heading paths.
+- Parse PDF, TXT, and Markdown files in the browser. Dynamically load PDF.js client-side and use its bundled local worker.
+- Support text-based PDF slides, UTF-8 Markdown notes, and either a UTF-8 TXT transcript or a supported completed-audio upload. Do not add live microphone access, browser recording, or realtime transcription.
+- Preserve page locators, numbered paragraph locators, Markdown heading paths, validated audio time-range locators, and speaker-labeled transcript excerpts.
 - Recognize Markdown ATX and Setext headings only outside fenced code blocks.
-- Enforce limits centrally: 10 MiB PDF, 1 MiB per text file, 120,000 normalized characters total, 100 chunks, and 1,800 characters per chunk.
+- Enforce limits centrally: 10 MiB PDF, 1 MiB per text file, 4,000,000-byte audio upload, 120,000 normalized characters total, 100 chunks, 1,800 characters per chunk, and 4,096 narration characters per speech request.
 - Reject unsafe or oversized input; never silently truncate it.
 - Load sample assets as real `File` objects through the production ingestion path.
 - Validate the fixture and apply it only after all ordered fingerprints match the manifest.
@@ -68,9 +73,22 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 - **Try demo** is always fixture-only and must never issue a provider request, even when keys are configured.
 - Label simulated results honestly.
 
+## Audio boundary
+
+- Before an audio upload begins, the UI must explicitly disclose that raw recorded-audio bytes will cross the application server and be sent to OpenAI, may incur separately billed API usage, and are not persisted or logged by LectureWeaver.
+- `POST /api/transcribe` accepts multipart data with one completed recording only, in FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, or WebM form. The client checks extension, MIME type, nonempty content, and the exact 4,000,000-byte file limit; the server repeats those checks and requires the signature, extension, and MIME type to identify the same format family. Never accept a browser-supplied key or provider base URL.
+- The OpenAI API currently permits files up to 25 MB, but this Vercel build deliberately caps the audio file at 4,000,000 bytes and the complete multipart request at 4,250,000 bytes so it remains below the [Vercel Function 4.5 MB payload limit](https://vercel.com/docs/functions/limitations#request-body-size). Reject longer files with actionable guidance; do not truncate or automatically split them.
+- Use the OpenAI Transcriptions API with `OPENAI_TRANSCRIBE_MODEL`, defaulting to `gpt-4o-transcribe-diarize`. Request `diarized_json` speaker/time segments with provider-side automatic chunking and fail closed on malformed, unordered, overlapping, non-finite, or blank segments.
+- Convert validated transcription segments into structural `transcript` chunks. Application code owns chunk IDs, source names, locator formatting, and final excerpts; the later analysis model may reference only their IDs.
+- `POST /api/speech` accepts validated JSON with at most 4,096 narration characters. Generate speech only from narration derived from validated enhanced notes. Use the OpenAI Speech API with `OPENAI_TTS_MODEL`, defaulting to `gpt-4o-mini-tts`, plus server-allowlisted voices and MP3/WAV output only.
+- Clearly disclose that generated speech is AI-generated. Playback and download must use the same returned audio result.
+- Do not persist or log audio bytes, transcripts, narration text, or generated speech. Keep them request-scoped or in browser memory and clear them on reset/refresh.
+- **Try demo** must never call transcription or speech, even when `OPENAI_API_KEY` is configured.
+- Keep audio provider capability separate from the multi-provider analysis catalog. Do not imply that DeepSeek or Kimi supports the OpenAI audio contract.
+
 ## Live-analysis boundary
 
-- Raw files and file bytes never cross `/api/analyze`. Send only the normalized, validated chunks plus the allowlisted provider/model selection.
+- Raw files and file bytes never cross `/api/analyze`. Send only the normalized, validated chunks plus the allowlisted provider/model selection. `POST /api/transcribe` is the only raw-source exception.
 - Normalized chunks contain source text. UI and docs must accurately state that live analysis transmits this text to the selected provider.
 - Revalidate content type, body size, source types, chunks, IDs, per-chunk limits, and total limits on the server.
 - The server chooses provider endpoints and reads credentials from its environment. Never accept a browser-supplied key or arbitrary base URL.
@@ -88,6 +106,8 @@ Environment configuration:
 ```text
 OPENAI_API_KEY       optional
 OPENAI_MODEL         default gpt-5.6
+OPENAI_TRANSCRIBE_MODEL default gpt-4o-transcribe-diarize
+OPENAI_TTS_MODEL     default gpt-4o-mini-tts
 DEEPSEEK_API_KEY     optional
 DEEPSEEK_MODEL       default deepseek-v4-flash
 KIMI_API_KEY         optional
@@ -96,6 +116,8 @@ KIMI_REGION          cn (default) or global
 ```
 
 - **OpenAI:** use the Responses API, `store: false`, bounded `max_output_tokens`, and `zodTextFormat`/strict Structured Outputs. Handle explicit refusal and incomplete output, then still run domain and semantic validation. The official `gpt-5.6` alias currently routes to GPT-5.6 Sol.
+- **OpenAI transcription:** use the Transcriptions API for completed recordings, with `diarized_json` and automatic chunking when the diarization model is selected. Validate all returned time/speaker/text segments before source-map construction.
+- **OpenAI speech:** use the Speech API for enhanced-note narration, with bounded text, an allowlisted voice/format, timeout handling, and explicit AI-voice disclosure.
 - **DeepSeek:** use `https://api.deepseek.com/chat/completions`, JSON Output, an explicit JSON instruction/schema example, bounded `max_tokens`, and strict local validation. JSON Output is not schema adherence and can occasionally return empty content. Keep DeepSeek-only fields isolated.
 - **Kimi:** use Chat Completions with `json_schema`, `strict: true`, and bounded `max_completion_tokens`. `cn` maps to `https://api.moonshot.cn/v1`; `global` maps to `https://api.moonshot.ai/v1`. Parse final message content, not reasoning content.
 - Treat missing/blank `KIMI_REGION` as `cn`, but fail closed on every other value outside `cn|global`; never silently route a typo to a regional endpoint.
@@ -104,7 +126,7 @@ KIMI_REGION          cn (default) or global
 
 Official references:
 
-- OpenAI: [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol)
+- OpenAI: [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol), [transcription API reference](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create), [speech to text](https://developers.openai.com/api/docs/guides/speech-to-text), [text to speech](https://developers.openai.com/api/docs/guides/text-to-speech)
 - DeepSeek: [current models/API quick start](https://api-docs.deepseek.com/), [JSON Output](https://api-docs.deepseek.com/guides/json_mode/)
 - Kimi: [regional quick start](https://platform.kimi.com/docs/overview), [model list](https://platform.kimi.ai/docs/models), [Structured Output](https://platform.kimi.com/docs/guide/response_format)
 
@@ -113,20 +135,22 @@ Official references:
 - Keep the primary path usable by keyboard and touch with semantic labels, visible focus, sufficient contrast, and overlay focus restoration.
 - Keep **Try demo** prominent and no-key.
 - Show configured/unconfigured provider state without revealing credentials.
-- Distinguish extraction, live analysis, simulated analysis, and source-map-only states honestly.
-- Treat initial, extracting, live loading, success, empty, validation failure, textless PDF, fingerprint mismatch, provider errors, retry, and reset as first-class states.
+- Distinguish local extraction, audio upload/transcription, live analysis, speech generation, simulated analysis, and source-map-only states honestly.
+- Treat initial, extracting, transcribing, live loading, generating speech, success, empty, validation failure, textless PDF, invalid audio, fingerprint mismatch, provider errors, retry, and reset as first-class states.
 - On narrow screens, prevent horizontal overflow and present evidence as an accessible sheet/dialog.
 - Render user, fixture, and provider Markdown without unsafe raw HTML.
-- Reject raw HTML, Markdown images, autolinks, Markdown links/references, and bare external URLs in suggested patches before export.
-- Derive cards, counts, filters, evidence, and patch content from validated domain objects.
+- Reject raw HTML, Markdown images, autolinks, Markdown links/references, and bare external URLs in generated Markdown before export.
+- Provide Enhanced notes, Audit trail, Changes only, Anki cards, and Audio guide as a coherent keyboard/touch workflow. Enhanced notes need a navigable table of contents and complete, untruncated prose. Audio needs labeled playback/download controls and AI-voice disclosure. Do not hide the audit or evidence beneath generated prose or audio.
+- Derive cards, counts, filters, evidence, Markdown, Anki tags, and export content from validated domain objects.
 
-## Milestone 2 constraints
+## Release constraints
 
 Do not add:
 
 - authentication, accounts, databases, server persistence, saved projects, analytics, or payments;
 - user-supplied API keys, arbitrary provider endpoints, or browser-visible secrets;
-- Notion, audio, PPTX, OCR, embeddings, vector search, chat, or collaboration;
+- Notion, PPTX, OCR, embeddings, vector search, chat, or collaboration;
+- recordings above 4,000,000 bytes, automatic long-recording splitting, live microphone access, in-browser recording, realtime transcription, custom/cloned voices, non-OpenAI audio providers, or multi-speaker podcast generation;
 - real student content, generated credentials, committed `.env` files, or source-text logging;
 - a silent provider fallback that could charge a different service or mislabel result provenance;
 - placeholder behavior in the demo or live-analysis path.
@@ -135,7 +159,7 @@ Do not add:
 
 ## Public deployment and cost safety
 
-`/api/analyze` spends the deployment owner's provider credits. Existing byte, token, and timeout limits do not prevent distributed abuse. Before a live deployment is public, require an explicit plan for access control or authentication, per-user/IP rate limits, quotas, provider budget alerts or hard limits, monitoring, and an emergency disable path. If those controls are not in scope, recommend a private/access-restricted deployment or omit provider keys and ship only the no-key demo.
+Analysis, transcription, and speech routes spend the deployment owner's provider credits; ChatGPT/Codex subscription usage cannot fund them. Audio uploads also increase bandwidth and request-duration exposure. Existing byte, token, and timeout limits do not prevent distributed abuse. Before a live deployment is public, require an explicit plan for access control or authentication, per-user/IP rate limits, quotas, provider budget alerts or hard limits, monitoring, and an emergency disable path. If those controls are not in scope, recommend a private/access-restricted deployment or omit provider keys and ship only the no-key demo.
 
 ## Testing expectations
 
@@ -143,11 +167,13 @@ Add focused regression coverage for behavior changes:
 
 - schemas, duplicate IDs, provider catalog/target validation, request limits, and API error envelopes;
 - normalization, ordering, locators, chunk caps, Unicode, CRLF, headings, and fenced-code exclusions;
-- score rounding, all statuses, zero-assessment rejection, evidence hydration, and deterministic Markdown;
+- audio extension/MIME/signature checks for every allowlisted format, the exact 4,000,000-byte cap, disclosure gating, multipart route handling, transcription target validation, timestamp/speaker segment validation, and deterministic transcript chunk locators;
+- score rounding, all statuses, zero-assessment rejection, enhanced-note mappings, Anki option semantics, evidence hydration, and deterministic Markdown/Anki exports;
 - sample ingestion, fingerprint mismatch, provider-unconfigured behavior, and accessible UI interactions;
 - OpenAI structured parse/refusal/length/error mapping;
 - DeepSeek JSON parsing, empty/length/error cases, and Kimi strict-schema request/response handling;
-- timeout, authentication, balance, rate-limit, and invalid-output failures with mocked network responses.
+- timeout, authentication, balance, rate-limit, and invalid-output failures with mocked network responses;
+- speech model/voice and MP3/WAV allowlists, the 4,096-character narration limit, audio response headers, playback/download state, retry, timeout, and invalid/empty audio failures.
 
 Tests use synthetic data. Avoid snapshots that conceal meaningful domain changes. Never call a paid provider from the test suite.
 
@@ -162,15 +188,17 @@ Tests use synthetic data. Avoid snapshots that conceal meaningful domain changes
 
 ## Definition of done
 
-Milestone 2 is complete only when:
+The release is complete only when:
 
 - `npm install`, `npm run lint`, `npm test`, and `npm run build` pass with no provider key required;
 - **Try demo** remains a complete, deterministic, no-request judge path under two minutes;
-- raw files parse locally and live analysis transmits only normalized chunks;
+- PDF/TXT/Markdown files parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
 - configured OpenAI, DeepSeek, and Kimi adapters follow their provider-specific contracts;
 - all provider output passes Zod and semantic validation before trusted hydration;
-- score/counts/Markdown remain application-computed and deterministic;
+- score/counts/Markdown/Anki exports remain application-computed and deterministic;
+- every audit becomes evidence-grounded enhanced notes, and requested Anki output covers all core assessments;
+- requested live audio study guides are derived from validated enhanced notes, clearly disclosed as AI-generated, playable, and downloadable;
 - unconfigured and failed live flows preserve the source map and recovery actions;
-- credentials stay server-only and no source content or secret is persisted;
+- credentials stay server-only and no source content, audio, transcript, generated speech, or secret is persisted or logged;
 - there is no authentication, database, history, analytics, or payment system;
 - public deployment documentation includes the API-credit and abuse-control warning.

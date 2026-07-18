@@ -30,6 +30,8 @@ import {
   type ModelAnalysisWire,
 } from "@/lib/ai/wire";
 
+import { buildTestAnalysis, toWireAnalysis } from "./analysis-fixtures";
+
 const sourceChunks: SourceChunk[] = [
   {
     id: "slides:p0001:c01",
@@ -55,10 +57,10 @@ const sourceChunks: SourceChunk[] = [
 ];
 
 function validWireAnalysis(): ModelAnalysisWire {
-  return {
-    summary: "The notes preserve the main spacing concept.",
-    assessments: [
-      {
+  return toWireAnalysis(
+    buildTestAnalysis(
+      [
+        {
         id: "spacing",
         title: "Spacing",
         importance: "core",
@@ -74,10 +76,14 @@ function validWireAnalysis(): ModelAnalysisWire {
             relevance: "The notes preserve the definition.",
           },
         ],
-        suggestedPatch: null,
+        },
+      ],
+      {
+        summary: "The notes preserve the main spacing concept.",
+        includeAnki: true,
       },
-    ],
-  };
+    ),
+  );
 }
 
 function completionEnvelope(
@@ -161,11 +167,13 @@ describe("AI provider catalog and request contract", () => {
     const missingNotes = AnalyzeRequestSchema.safeParse({
       provider: "openai",
       model: "gpt-5.6",
+      outputs: { ankiCards: true },
       chunks: [sourceChunks[0], sourceChunks[1], { ...sourceChunks[1], id: "t2" }],
     });
     const duplicate = AnalyzeRequestSchema.safeParse({
       provider: "openai",
       model: "gpt-5.6",
+      outputs: { ankiCards: true },
       chunks: [...sourceChunks, { ...sourceChunks[0] }],
     });
 
@@ -187,6 +195,7 @@ describe("AI provider catalog and request contract", () => {
     const oversizedChunk = AnalyzeRequestSchema.safeParse({
       provider: "openai",
       model: "gpt-5.6",
+      outputs: { ankiCards: true },
       chunks: [
         { ...sourceChunks[0], text: "x".repeat(MAX_CHUNK_CHARACTERS + 1) },
         sourceChunks[1],
@@ -203,11 +212,13 @@ describe("AI provider catalog and request contract", () => {
     const aggregate = AnalyzeRequestSchema.safeParse({
       provider: "openai",
       model: "gpt-5.6",
+      outputs: { ankiCards: true },
       chunks: aggregateChunks,
     });
     const tooMany = AnalyzeRequestSchema.safeParse({
       provider: "openai",
       model: "gpt-5.6",
+      outputs: { ankiCards: true },
       chunks: Array.from({ length: MAX_SOURCE_CHUNKS + 1 }, (_, index) => ({
         ...sourceChunks[index % sourceChunks.length],
         id: `many-${index}`,
@@ -369,9 +380,8 @@ describe("wire parsing and OpenAI injection", () => {
   });
 
   it("revalidates injected provider analysis against trusted chunks in the server", async () => {
-    const invalidAnalysis: ModelAnalysis = {
-      summary: "Looks structurally valid but cites an invented chunk.",
-      assessments: [
+    const invalidAnalysis: ModelAnalysis = buildTestAnalysis(
+      [
         {
           id: "invented-evidence",
           title: "Invented evidence",
@@ -384,11 +394,13 @@ describe("wire parsing and OpenAI injection", () => {
           suggestedPatch: "Add a grounded explanation.",
         },
       ],
-    };
+      { summary: "Looks structurally valid but cites an invented chunk." },
+    );
     const analyzer = vi.fn<ProviderAnalyzer>(async () => invalidAnalysis);
     const request = AnalyzeRequestSchema.parse({
       provider: "openai",
       model: "gpt-5.6",
+      outputs: { ankiCards: false },
       chunks: sourceChunks,
     });
 
@@ -411,6 +423,7 @@ describe("wire parsing and OpenAI injection", () => {
     const request = AnalyzeRequestSchema.parse({
       provider: "kimi",
       model: "kimi-k3",
+      outputs: { ankiCards: true },
       chunks: sourceChunks,
     });
 
@@ -441,6 +454,7 @@ describe("wire parsing and OpenAI injection", () => {
     const request = AnalyzeRequestSchema.parse({
       provider: "kimi",
       model: "kimi-k3",
+      outputs: { ankiCards: true },
       chunks: sourceChunks,
     });
 

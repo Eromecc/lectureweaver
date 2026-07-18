@@ -1,4 +1,8 @@
-import { ModelAnalysisSchema, type SourceType } from "@/domain";
+import {
+  ModelAnalysisSchema,
+  type AnalysisOutputOptions,
+  type SourceType,
+} from "@/domain";
 import {
   buildAnalysisResult,
   type AnalysisResult,
@@ -102,6 +106,7 @@ export type DemoAnalysisResult = AnalysisResult & {
 
 export async function runFixtureAnalysis(
   processed: ProcessedSources,
+  outputs: AnalysisOutputOptions = { ankiCards: true },
 ): Promise<DemoAnalysisResult> {
   const [fingerprints, manifest] = await Promise.all([
     fingerprintSourceChunks(processed.chunks),
@@ -119,10 +124,15 @@ export async function runFixtureAnalysis(
     );
   }
 
+  const fixture = parseDemoFixture();
+  const analysis = outputs.ankiCards
+    ? fixture
+    : ModelAnalysisSchema.parse({ ...fixture, ankiCards: [] });
   const result = buildAnalysisResult(
-    parseDemoFixture(),
+    analysis,
     processed.chunks,
     { kind: "demo" },
+    outputs,
   );
   return {
     ...result,

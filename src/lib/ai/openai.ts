@@ -1,14 +1,18 @@
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 
-import type { ModelAnalysis, SourceChunk } from "@/domain";
+import type {
+  AnalysisOutputOptions,
+  ModelAnalysis,
+  SourceChunk,
+} from "@/domain";
 
 import {
   invalidProviderOutput,
   ProviderRequestError,
   providerHttpError,
 } from "./errors";
-import { ANALYSIS_INSTRUCTIONS, buildAnalysisInput } from "./prompt";
+import { buildAnalysisInput, buildAnalysisInstructions } from "./prompt";
 import {
   ModelAnalysisWireSchema,
   parseModelAnalysisWire,
@@ -21,6 +25,7 @@ export type OpenAIInvocation = {
   apiKey: string;
   model: string;
   chunks: SourceChunk[];
+  outputs?: AnalysisOutputOptions;
 };
 
 export type OpenAIInvoker = (
@@ -91,6 +96,7 @@ export const invokeOpenAIResponses: OpenAIInvoker = async ({
   apiKey,
   model,
   chunks,
+  outputs = { ankiCards: false },
 }) => {
   const client = new OpenAI({
     apiKey,
@@ -100,8 +106,8 @@ export const invokeOpenAIResponses: OpenAIInvoker = async ({
 
   const response = await client.responses.parse({
     model,
-    instructions: ANALYSIS_INSTRUCTIONS,
-    input: buildAnalysisInput(chunks),
+    instructions: buildAnalysisInstructions(outputs),
+    input: buildAnalysisInput(chunks, outputs),
     store: false,
     max_output_tokens: MAX_MODEL_OUTPUT_TOKENS,
     text: {

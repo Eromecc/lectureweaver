@@ -8,9 +8,12 @@ import type {
 } from "@/domain";
 import {
   AnalysisSemanticError,
+  generateEnhancedNotesMarkdown,
   generateMarkdownPatch,
   hydrateAnalysis,
 } from "@/lib/analysis";
+
+import { buildTestAnalysis } from "./analysis-fixtures";
 
 const sourceChunks: SourceChunk[] = [
   {
@@ -35,6 +38,14 @@ const sourceChunks: SourceChunk[] = [
     headingPath: ["Study methods", "Spacing"],
     text: "Space each review session by one week.",
   },
+  {
+    id: "notes:p0003:c01",
+    sourceType: "notes",
+    sourceName: "notes.md",
+    locator: "Paragraph 3",
+    headingPath: ["Study methods", "Retrieval"],
+    text: "Retrieve before checking the source.",
+  },
 ];
 
 function makeAssessment(
@@ -58,7 +69,7 @@ function makeAssessment(
 }
 
 function analysisWith(assessment: ConceptAssessment): ModelAnalysis {
-  return { summary: "Analysis summary", assessments: [assessment] };
+  return buildTestAnalysis([assessment], { summary: "Analysis summary" });
 }
 
 describe("evidence validation and hydration", () => {
@@ -83,6 +94,18 @@ describe("evidence validation and hydration", () => {
         text: "Space each review session by one week.",
       },
     });
+    expect(hydrated.enhancedNotes.sections[0]?.evidence[1]?.chunk).toMatchObject({
+      sourceName: "notes.md",
+      locator: "Paragraphs 1–2",
+      text: "Space each review session by one week.",
+    });
+    const enhancedMarkdown = generateEnhancedNotesMarkdown(hydrated);
+    expect(enhancedMarkdown).toContain("## Contents");
+    expect(enhancedMarkdown).toContain("- [1. spacing](#1-spacing)");
+    expect(enhancedMarkdown).toContain("## 1. spacing");
+    expect(enhancedMarkdown).toContain(
+      "notes.md · Paragraphs 1–2 — Study methods › Spacing",
+    );
   });
 
   it("rejects unknown and duplicate source chunk ids", () => {
@@ -125,9 +148,7 @@ describe("evidence validation and hydration", () => {
   );
 
   it("orders Markdown by status then importance and emits trusted locators", () => {
-    const analysis: ModelAnalysis = {
-      summary: "Several additions are recommended.",
-      assessments: [
+    const assessments = [
         makeAssessment(
           "partial-supporting",
           "partial",
@@ -150,8 +171,10 @@ describe("evidence validation and hydration", () => {
           "missing",
           ["transcript:p0001-p0002:c01"],
         ),
-      ],
-    };
+      ];
+    const analysis: ModelAnalysis = buildTestAnalysis(assessments, {
+      summary: "Several additions are recommended.",
+    });
 
     const markdown = generateMarkdownPatch(
       hydrateAnalysis(analysis, sourceChunks),
@@ -185,5 +208,119 @@ describe("evidence validation and hydration", () => {
     );
 
     expect(generateMarkdownPatch(hydrated)).toBe("");
+  });
+
+  it("rejects artifact evidence outside linked assessments and notes-only cards", () => {
+    const base = buildTestAnalysis(
+      [
+        makeAssessment("spacing", "covered", [
+          "slides:p0001:c01",
+          "notes:p0001-p0002:c01",
+        ]),
+      ],
+      { includeAnki: true },
+    );
+    const unrelatedSectionEvidence: ModelAnalysis = {
+      ...base,
+      enhancedNotes: {
+        ...base.enhancedNotes,
+        sections: [
+          {
+            ...base.enhancedNotes.sections[0]!,
+            evidenceRefs: [
+              ...base.enhancedNotes.sections[0]!.evidenceRefs,
+              {
+                chunkId: "transcript:p0001-p0002:c01",
+                relevance: "A real but unrelated chunk.",
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const notesOnlyCard: ModelAnalysis = {
+      ...base,
+      ankiCards: [
+        {
+          ...base.ankiCards[0]!,
+          evidenceRefs: [
+            {
+              chunkId: "notes:p0001-p0002:c01",
+              relevance: "Notes alone cannot ground a card.",
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(() => hydrateAnalysis(unrelatedSectionEvidence, sourceChunks)).toThrow(
+      "outside its linked assessments",
+    );
+    expect(() =>
+      hydrateAnalysis(notesOnlyCard, sourceChunks, { ankiCards: true }),
+    ).toThrow("requires evidence from slides or transcript");
+  });
+
+  it("enforces the requested Anki output and core-assessment coverage", () => {
+    const assessment = makeAssessment("spacing", "covered", [
+      "slides:p0001:c01",
+      "notes:p0001-p0002:c01",
+    ]);
+    const withCards = buildTestAnalysis([assessment], { includeAnki: true });
+    const withoutCards = buildTestAnalysis([assessment], { includeAnki: false });
+
+    expect(() =>
+      hydrateAnalysis(withCards, sourceChunks, { ankiCards: false }),
+    ).toThrow("not requested");
+    expect(() =>
+      hydrateAnalysis(withoutCards, sourceChunks, { ankiCards: true }),
+    ).toThrow("none were returned");
+  });
+
+  it("requires each linked artifact assessment to share its own trusted evidence", () => {
+    const spacing = makeAssessment("spacing", "covered", [
+      "slides:p0001:c01",
+      "notes:p0001-p0002:c01",
+    ]);
+    const retrieval = makeAssessment("retrieval", "covered", [
+      "transcript:p0001-p0002:c01",
+      "notes:p0003:c01",
+    ]);
+    const base = buildTestAnalysis([spacing, retrieval], { includeAnki: true });
+    const borrowedSectionEvidence: ModelAnalysis = {
+      ...base,
+      enhancedNotes: {
+        ...base.enhancedNotes,
+        sections: [
+          {
+            ...base.enhancedNotes.sections[0]!,
+            assessmentIds: [spacing.id, retrieval.id],
+            evidenceRefs: [
+              spacing.evidenceRefs[0]!,
+              retrieval.evidenceRefs[1]!,
+            ],
+          },
+        ],
+      },
+    };
+    const borrowedCardEvidence: ModelAnalysis = {
+      ...base,
+      ankiCards: [
+        {
+          ...base.ankiCards[0]!,
+          assessmentIds: [spacing.id, retrieval.id],
+          evidenceRefs: [spacing.evidenceRefs[0]!],
+        },
+      ],
+    };
+
+    expect(() => hydrateAnalysis(borrowedSectionEvidence, sourceChunks)).toThrow(
+      "does not share notes evidence with assessment spacing",
+    );
+    expect(() =>
+      hydrateAnalysis(borrowedCardEvidence, sourceChunks, { ankiCards: true }),
+    ).toThrow(
+      "does not share slides or transcript evidence with assessment retrieval",
+    );
   });
 });

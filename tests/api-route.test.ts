@@ -9,6 +9,8 @@ import {
 import { POST } from "@/app/api/analyze/route";
 import type { ModelAnalysisWire } from "@/lib/ai/wire";
 
+import { buildTestAnalysis, toWireAnalysis } from "./analysis-fixtures";
+
 const chunks: SourceChunk[] = [
   {
     id: "slides:p0001:c01",
@@ -34,7 +36,12 @@ const chunks: SourceChunk[] = [
 ];
 
 function analyzeRequest(model = "deepseek-v4-flash"): AnalyzeRequest {
-  return { provider: "deepseek", model, chunks };
+  return {
+    provider: "deepseek",
+    model,
+    outputs: { ankiCards: true },
+    chunks,
+  };
 }
 
 function jsonRequest(body: unknown): Request {
@@ -46,10 +53,10 @@ function jsonRequest(body: unknown): Request {
 }
 
 function validWireAnalysis(): ModelAnalysisWire {
-  return {
-    summary: "The notes capture the central idea.",
-    assessments: [
-      {
+  return toWireAnalysis(
+    buildTestAnalysis(
+      [
+        {
         id: "spacing",
         title: "Spacing",
         importance: "core",
@@ -59,10 +66,14 @@ function validWireAnalysis(): ModelAnalysisWire {
           { chunkId: "slides:p0001:c01", relevance: "Defines spacing." },
           { chunkId: "notes:p0001:c01", relevance: "Preserves spacing." },
         ],
-        suggestedPatch: null,
+        },
+      ],
+      {
+        summary: "The notes capture the central idea.",
+        includeAnki: true,
       },
-    ],
-  };
+    ),
+  );
 }
 
 async function responsePayload(response: Response): Promise<unknown> {

@@ -1,14 +1,18 @@
 import { zodResponseFormat } from "openai/helpers/zod";
 import { z } from "zod";
 
-import type { ModelAnalysis, SourceChunk } from "@/domain";
+import type {
+  AnalysisOutputOptions,
+  ModelAnalysis,
+  SourceChunk,
+} from "@/domain";
 
 import {
   invalidProviderOutput,
   ProviderRequestError,
   providerHttpError,
 } from "./errors";
-import { ANALYSIS_INSTRUCTIONS, buildAnalysisInput } from "./prompt";
+import { buildAnalysisInput, buildAnalysisInstructions } from "./prompt";
 import { getProviderLabel } from "./providers";
 import {
   ModelAnalysisWireSchema,
@@ -58,6 +62,7 @@ type ChatAnalysisOptions = {
   baseUrl: string;
   model: string;
   chunks: SourceChunk[];
+  outputs?: AnalysisOutputOptions;
   fetchImpl?: typeof fetch;
 };
 
@@ -65,10 +70,11 @@ function requestBody(
   provider: ChatProvider,
   model: string,
   chunks: SourceChunk[],
+  outputs: AnalysisOutputOptions,
 ): Record<string, unknown> {
   const messages = [
-    { role: "system", content: ANALYSIS_INSTRUCTIONS },
-    { role: "user", content: buildAnalysisInput(chunks) },
+    { role: "system", content: buildAnalysisInstructions(outputs) },
+    { role: "user", content: buildAnalysisInput(chunks, outputs) },
   ];
 
   if (provider === "deepseek") {
@@ -179,6 +185,7 @@ export async function analyzeWithChatCompletions({
   baseUrl,
   model,
   chunks,
+  outputs = { ankiCards: false },
   fetchImpl = fetch,
 }: ChatAnalysisOptions): Promise<ModelAnalysis> {
   const providerLabel = getProviderLabel(provider);
@@ -192,7 +199,7 @@ export async function analyzeWithChatCompletions({
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(requestBody(provider, model, chunks)),
+      body: JSON.stringify(requestBody(provider, model, chunks, outputs)),
       signal: controller.signal,
     });
 

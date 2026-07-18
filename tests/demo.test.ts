@@ -148,10 +148,13 @@ describe("checked-in demo contract", () => {
     const manifest = parseDemoManifest();
 
     expect(fixture.assessments).toHaveLength(7);
+    expect(fixture.enhancedNotes.sections).toHaveLength(6);
+    expect(fixture.ankiCards).toHaveLength(7);
     expect(manifest.fingerprints).toEqual(EXPECTED_FINGERPRINTS);
     expect(() => parseDemoManifest({ ...manifest, unexpected: true })).toThrow();
     expect(() =>
       parseDemoFixture({
+        ...fixture,
         summary: "Malformed covered item",
         assessments: [
           {
@@ -192,6 +195,18 @@ describe("checked-in demo contract", () => {
       locator: "Page 2",
     });
     expect(result.hydrated.assessments.flatMap((item) => item.evidence)).toHaveLength(20);
+    expect(result.hydrated.enhancedNotes.sections).toHaveLength(6);
+    expect(result.hydrated.ankiCards).toHaveLength(7);
+    expect(result.enhancedMarkdown).toContain(
+      "# Evidence-Based Study Strategies",
+    );
+    expect(result.enhancedMarkdown).toContain(
+      "## 5. Feedback: close the correction loop",
+    );
+    expect(result.ankiImportText).toContain("#separator:tab");
+    expect(result.ankiImportText).toContain(
+      "What mechanism makes interleaving useful?",
+    );
 
     expect(result.markdown).toContain("# Suggested note additions");
     expect(result.markdown.indexOf("## Missing concepts")).toBeLessThan(
@@ -201,6 +216,21 @@ describe("checked-in demo contract", () => {
       result.markdown.indexOf("## Possible contradictions"),
     );
     expect(result.markdown).toBe(EXPECTED_MARKDOWN_PATCH);
+  });
+
+  it("honors the optional Anki output without changing the audit or enhanced notes", async () => {
+    const result = await runFixtureAnalysis(checkedInCorpus, {
+      ankiCards: false,
+    });
+
+    expect(result.metrics.score).toBe(64);
+    expect(result.hydrated.ankiCards).toEqual([]);
+    expect(result.enhancedMarkdown).toContain(
+      "# Evidence-Based Study Strategies",
+    );
+    expect(result.ankiImportText).toBe(
+      "#separator:tab\n#html:true\n#columns:Front\tBack\tTags\n#tags column:3\n",
+    );
   });
 
   it("fails closed when one normalized source differs", async () => {

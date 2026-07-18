@@ -1,4 +1,9 @@
-import type { SourceChunk, SourceType } from "@/domain";
+import type {
+  AudioTranscriptionSegment,
+  SourceChunk,
+  SourceType,
+} from "@/domain";
+import { normalizeAudioTranscriptSpeaker } from "@/domain";
 import { MAX_CHUNK_CHARACTERS } from "./constants";
 import { parseMarkdownBlocks } from "./markdown";
 import { normalizeChunkText, normalizeSourceText } from "./normalize";
@@ -8,6 +13,8 @@ export type PdfPageText = {
   text: string;
 };
 
+export type TimestampedTranscriptSegment = AudioTranscriptionSegment;
+
 type ParagraphUnit = {
   ordinal: number;
   text: string;
@@ -16,6 +23,25 @@ type ParagraphUnit = {
 
 function pad(value: number, width: number): string {
   return value.toString().padStart(width, "0");
+}
+
+function timestamp(seconds: number, round: "down" | "up"): string {
+  const wholeSeconds = round === "down" ? Math.floor(seconds) : Math.ceil(seconds);
+  const hours = Math.floor(wholeSeconds / 3_600);
+  const minutes = Math.floor((wholeSeconds % 3_600) / 60);
+  const remainingSeconds = wholeSeconds % 60;
+  return hours > 0
+    ? `${pad(hours, 2)}:${pad(minutes, 2)}:${pad(remainingSeconds, 2)}`
+    : `${pad(minutes, 2)}:${pad(remainingSeconds, 2)}`;
+}
+
+function timestampId(seconds: number, round: "down" | "up"): string {
+  const rawMilliseconds = seconds * 1_000;
+  const milliseconds =
+    round === "down"
+      ? Math.floor(rawMilliseconds + Number.EPSILON)
+      : Math.ceil(rawMilliseconds - 1e-7);
+  return pad(milliseconds, 9);
 }
 function adjustForSurrogatePair(text: string, index: number): number {
   if (index <= 0 || index >= text.length) return index;
@@ -157,6 +183,76 @@ export function chunkTranscript(
     .filter(Boolean)
     .map((text, index) => ({ ordinal: index + 1, text }));
   return chunkParagraphUnits("transcript", sourceName, paragraphs, maxLength);
+}
+
+/**
+ * Turns validated transcription segments into application-owned source chunks.
+ * The provider supplies segment timing and text, but ids, locators, grouping, and
+ * excerpts are deterministically derived here before any analysis model sees them.
+ */
+export function chunkTimestampedTranscript(
+  segments: readonly TimestampedTranscriptSegment[],
+  sourceName: string,
+  maxLength = MAX_CHUNK_CHARACTERS,
+): SourceChunk[] {
+  const chunks: SourceChunk[] = [];
+  let pending: TimestampedTranscriptSegment[] = [];
+  let pendingText = "";
+
+  const emit = (
+    groupedSegments: readonly TimestampedTranscriptSegment[],
+    text: string,
+  ) => {
+    const first = groupedSegments[0];
+    const last = groupedSegments.at(-1);
+    if (first === undefined || last === undefined) return;
+
+    const start = Math.max(0, first.startSeconds);
+    const end = Math.max(start, last.endSeconds);
+    const locator = `${timestamp(start, "down")}–${timestamp(end, "up")}`;
+    chunks.push({
+      id: `transcript:t${timestampId(start, "down")}-t${timestampId(end, "up")}:c${pad(chunks.length + 1, 2)}`,
+      sourceType: "transcript",
+      sourceName,
+      locator,
+      text: normalizeChunkText(text),
+    });
+  };
+
+  const flush = () => {
+    if (pending.length > 0 && pendingText) emit(pending, pendingText);
+    pending = [];
+    pendingText = "";
+  };
+
+  for (const segment of segments) {
+    const text = normalizeChunkText(segment.text);
+    const speaker = normalizeAudioTranscriptSpeaker(segment.speaker);
+    if (!text || !speaker) continue;
+
+    const speakerPrefix = `${speaker}: `;
+    const spokenText = `${speakerPrefix}${text}`;
+    if (spokenText.length > maxLength) {
+      flush();
+      if (speakerPrefix.length >= maxLength) {
+        throw new Error(
+          "The transcript chunk limit is too small to preserve speaker labels.",
+        );
+      }
+      splitOversizedText(text, maxLength - speakerPrefix.length).forEach((piece) => {
+        emit([segment], `${speakerPrefix}${piece}`);
+      });
+      continue;
+    }
+
+    const candidate = pendingText ? `${pendingText}\n\n${spokenText}` : spokenText;
+    if (candidate.length > maxLength) flush();
+    pending.push(segment);
+    pendingText = pendingText ? `${pendingText}\n\n${spokenText}` : spokenText;
+  }
+
+  flush();
+  return chunks;
 }
 
 export function chunkMarkdownNotes(

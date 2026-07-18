@@ -27,6 +27,12 @@ export const AnalysisTargetSchema = z
   })
   .strict();
 
+export const AnalysisOutputOptionsSchema = z
+  .object({
+    ankiCards: z.boolean(),
+  })
+  .strict();
+
 export const ProviderModelSchema = z
   .object({
     id: modelId,
@@ -90,6 +96,7 @@ export const AnalyzeRequestSchema = z
   .object({
     provider: ProviderIdSchema,
     model: modelId,
+    outputs: AnalysisOutputOptionsSchema,
     chunks: SourceChunkListSchema.min(3).max(MAX_SOURCE_CHUNKS),
   })
   .strict()
@@ -230,6 +237,7 @@ export const AnalyzeErrorSchema = z
 
 export type ProviderId = z.infer<typeof ProviderIdSchema>;
 export type AnalysisTarget = z.infer<typeof AnalysisTargetSchema>;
+export type AnalysisOutputOptions = z.infer<typeof AnalysisOutputOptionsSchema>;
 export type ProviderModel = z.infer<typeof ProviderModelSchema>;
 export type PublicProvider = z.infer<typeof PublicProviderSchema>;
 export type PublicProviderCatalog = z.infer<typeof PublicProviderCatalogSchema>;
