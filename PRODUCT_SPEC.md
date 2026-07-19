@@ -48,8 +48,8 @@ This flow never calls analysis, transcription, or speech services, even when pro
 
 ### Live analysis of user-selected material
 
-1. The user supplies one lecture source as a text-based PDF, uploaded UTF-8 TXT, or directly pasted text; one UTF-8 Markdown notes file; and either an uploaded UTF-8 TXT transcript or directly pasted transcript text.
-2. The browser validates and parses the raw files/text locally into normalized chunks with structural IDs and locators. Pasted lecture or transcript text follows the same UTF-8 size, normalization, chunking, and locator contract as its uploaded TXT equivalent. A recorded-audio upload may supply the transcript through the separate flow below.
+1. The user supplies one lecture source as a text-based PDF, uploaded UTF-8 TXT, or directly pasted text; one separately uploaded UTF-8 `.md` or `.markdown` notes file; and either an uploaded UTF-8 TXT transcript or directly pasted transcript text.
+2. Lecture and transcript paste drafts are validated locally through the same production validators as uploaded TXT after a 400 ms pause; a visible validate-now action runs the same check immediately. Editing a draft invalidates its previously materialized local `File`. Neither automatic nor manual paste validation triggers a provider request. Valid pasted text then follows the same normalization, chunking, and locator contract as its uploaded TXT equivalent. A recorded-audio upload may supply the transcript through the separate flow below.
 3. The user chooses a provider/model, an output language, and whether to create Anki cards. Enhanced notes are always produced. Output language is strictly one of `en`, `zh-CN`, `ja`, or `ko`; **Follow interface** resolves to the current interface locale for the next request.
 4. If the selected provider has either a deployment credential or a valid temporary current-tab credential, the browser posts only the normalized chunks, selected target, resolved nonsecret output language, and nonsecret credential mode to `/api/analyze`.
 5. The server resolves an allowlisted endpoint and uses exactly the declared credential path. A temporary key is carried only in a bounded same-origin request header; a missing/stripped temporary header never falls back to a deployment key. The client cannot submit an arbitrary base URL or model ID.
@@ -77,7 +77,7 @@ This flow never calls analysis, transcription, or speech services, even when pro
 ### Unconfigured or failed live analysis
 
 - If the selected provider has neither a deployment key nor a valid temporary key, no chunks are sent; valid input displays a local source map and offers **Try demo**.
-- The live-analysis action remains visible while setup is incomplete, but is disabled with a specific readiness reason for missing sources, credential, model/provider selection, or Kimi region.
+- The readiness UI identifies the exact missing lecture, preparing/invalid paste, missing transcript, audio transcription, missing notes, credential, model/provider selection, Kimi region, or active processing step. It explains that **Build local source map** is local-only and that **Extract and analyze with …** is the explicit normalized-text transmission action; the live action remains visible but disabled until all prerequisites are ready.
 - If a provider rejects, times out, rate-limits, truncates, or returns invalid output, the source map remains available and the user can manually retry or choose another ready provider.
 - Live analysis uses nested ceilings of 150 seconds for the upstream provider request, 170 seconds for the browser request, and 180 seconds for the application function. The ordering reserves cleanup and error-response headroom instead of allowing the hosting platform to terminate the outer request first.
 - LectureWeaver does not automatically retry timed-out live analysis. The provider may already have performed billable work even when the application did not receive a valid result, so only an explicit user action starts another paid request.
@@ -87,7 +87,7 @@ This flow never calls analysis, transcription, or speech services, even when pro
 
 ### Input, extraction, and limits
 
-- Accept a PDF, uploaded TXT, or directly pasted text for the lecture source; Markdown (`.md`) for notes; and uploaded TXT, directly pasted text, or a supported completed-audio upload for the transcript source.
+- Accept a PDF, uploaded TXT, or directly pasted text for the lecture source; a separate Markdown (`.md` or `.markdown`) upload for notes; and uploaded TXT, directly pasted text, or a supported completed-audio upload for the transcript source.
 - Validate extension, MIME compatibility, file size, PDF/audio signatures where applicable, and UTF-8/binary safety.
 - Allow recorded-audio extensions/formats FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, and WebM only. The client validates extension, MIME, nonempty content, and size; the server repeats those checks and requires the detected file signature, extension, and MIME type to identify the same format family.
 - Enforce 10 MiB PDF, 1 MiB per text file, 4,000,000 bytes per recorded-audio upload, 120,000 normalized characters total, 100 chunks total, 1,800 characters per chunk, and 4,096 narration characters per speech request.
@@ -190,7 +190,7 @@ When speech is requested for a live result, derive narration from the validated 
 ### Presentation and states
 
 - Keep **Try demo** prominent and usable without configuration.
-- Provide accessible provider/model controls with deployment-configured, temporary-key-ready, and local-only labeling, plus masked/clearable key inputs and explicit Kimi region selection. Keep the live-analysis action visible; disable it with an accessible readiness reason until all prerequisites are satisfied.
+- Provide accessible provider/model controls with deployment-configured, temporary-key-ready, and local-only labeling, plus masked/clearable key inputs and explicit Kimi region selection. Keep local and live actions visible, distinguish their transmission boundaries, and disable them with an accessible, exact readiness reason until their respective prerequisites are satisfied.
 - Provide complete English, Simplified Chinese, Japanese, and Korean interface catalogs. Provide an independent live output-language selector for `en`, `zh-CN`, `ja`, and `ko`, defaulting to **Follow interface**. Changing it affects the next live analysis and never retroactively translates an existing result.
 - Preserve source text, provider/model IDs, filenames, chunk references, and evidence locators verbatim even when generated explanations and study content use another selected language.
 - Explain that PDF/TXT/Markdown plus pasted lecture and transcript text stay local, while recorded-audio bytes are transmitted to OpenAI only after explicit disclosure and confirmation; normalized chunks are transmitted only for explicitly requested live analysis.

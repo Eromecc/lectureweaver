@@ -170,6 +170,7 @@ type SessionProviderKeys = Partial<Record<ProviderId, string>>;
 type OutputLanguagePreference = "follow-interface" | OutputLanguage;
 
 const EMPTY_PROVIDER_CATALOG: PublicProviderCatalog = { providers: [] };
+const PASTE_AUTO_VALIDATE_DELAY_MS = 400;
 
 function isOutputLanguagePreference(
   value: string,
@@ -300,6 +301,25 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+async function createValidatedPastedTextFile({
+  rawText,
+  fileName,
+  readText,
+  emptyMessage,
+}: {
+  rawText: string;
+  fileName: string;
+  readText: (file: File) => Promise<string>;
+  emptyMessage: string;
+}): Promise<File> {
+  const file = new File([rawText], fileName, { type: "text/plain" });
+  const validatedText = await readText(file);
+  if (normalizeSourceText(validatedText).length === 0) {
+    throw new Error(emptyMessage);
+  }
+  return file;
 }
 
 function processingError(error: unknown): PipelineErrorState {
@@ -681,12 +701,12 @@ function LectureSourceCard({
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <button
               type="button"
               disabled={disabled || validatingPaste}
               onClick={onUsePastedLecture}
-              className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-4 text-xs font-bold text-white transition hover:bg-[#223252] disabled:cursor-wait disabled:opacity-50"
+              className="inline-flex min-h-11 w-full flex-1 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-4 text-xs font-bold text-white transition hover:bg-[#223252] disabled:cursor-wait disabled:opacity-50 sm:w-auto"
             >
               {validatingPaste && <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />}
               {validatingPaste
@@ -700,7 +720,7 @@ function LectureSourceCard({
                 type="button"
                 disabled={disabled || validatingPaste}
                 onClick={onClearPastedLecture}
-                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#14213d]/15 bg-white px-3 text-xs font-bold text-[#14213d] hover:bg-[#f7f4ec] disabled:opacity-50"
+                className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-[#14213d]/15 bg-white px-3 text-xs font-bold text-[#14213d] hover:bg-[#f7f4ec] disabled:opacity-50 sm:w-auto"
               >
                 {t("lecture.pasteClear")}
               </button>
@@ -1053,12 +1073,12 @@ function SpokenSourceCard({
               </div>
             )}
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <button
               type="button"
               disabled={disabled || validatingPaste}
               onClick={onUsePastedTranscript}
-              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-4 text-sm font-bold text-white transition hover:bg-[#223252] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-11 w-full flex-1 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-4 text-sm font-bold text-white transition hover:bg-[#223252] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
             >
               {validatingPaste ? (
                 <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
@@ -1076,7 +1096,7 @@ function SpokenSourceCard({
                 type="button"
                 disabled={disabled || validatingPaste}
                 onClick={onClearPastedTranscript}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#14213d]/15 bg-white px-4 text-sm font-bold text-[#14213d] transition hover:bg-[#f7f4ec] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#14213d]/15 bg-white px-4 text-sm font-bold text-[#14213d] transition hover:bg-[#f7f4ec] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 <X className="size-4" aria-hidden="true" />
                 {t("spoken.pasteClear")}
@@ -2978,19 +2998,65 @@ export function LectureWeaver(
   const revealOutputTimerRef = useRef<number | null>(null);
   const lecturePasteValidationVersionRef = useRef(0);
   const pasteValidationVersionRef = useRef(0);
+  const lecturePasteAutoValidationTimerRef = useRef<number | null>(null);
+  const transcriptPasteAutoValidationTimerRef = useRef<number | null>(null);
   const loading = mode === "loading";
   const transcribing = transcriptionState.status === "loading";
   const checkingAudio = transcriptionState.status === "validating";
   const validatingPaste = pastedTranscriptState.status === "validating";
   const validatingLecturePaste = pastedLectureState.status === "validating";
   const busy = loading || transcribing || checkingAudio || validatingPaste || validatingLecturePaste;
-  const ready =
-    hasBaseFiles(files) &&
-    (spokenSourceMode === "audio"
-      ? audioFile !== null && transcriptionState.status === "ready"
-      : files.transcript !== undefined &&
-        transcriptInputKind ===
-          (spokenSourceMode === "paste" ? "paste" : "upload"));
+  const sourceReadinessKey: UiMessageKey | null = (() => {
+    if (lectureSourceMode === "paste") {
+      if (
+        files.slides === undefined ||
+        pastedLectureState.status !== "ready"
+      ) {
+        if (pastedLectureState.status === "error") {
+          return "analysis.fixLecturePaste";
+        }
+        if (pastedLecture.trim().length > 0) {
+          return "analysis.preparingLecturePaste";
+        }
+        return "analysis.missingLecture";
+      }
+    } else if (files.slides === undefined) {
+      return "analysis.missingLecture";
+    }
+
+    if (spokenSourceMode === "audio") {
+      if (audioFile === null) return "analysis.missingAudio";
+      if (transcriptionState.status !== "ready") {
+        return "analysis.transcribeAudio";
+      }
+    } else if (spokenSourceMode === "paste") {
+      if (
+        files.transcript === undefined ||
+        transcriptInputKind !== "paste" ||
+        pastedTranscriptState.status !== "ready"
+      ) {
+        if (pastedTranscriptState.status === "error") {
+          return "analysis.fixTranscriptPaste";
+        }
+        if (pastedTranscript.trim().length > 0) {
+          return "analysis.preparingTranscriptPaste";
+        }
+        return "analysis.missingTranscript";
+      }
+    } else if (
+      files.transcript === undefined ||
+      transcriptInputKind !== "upload"
+    ) {
+      return "analysis.missingTranscript";
+    }
+
+    if (files.notes === undefined) return "analysis.missingNotes";
+    return null;
+  })();
+  const ready = sourceReadinessKey === null;
+  const sourceReadinessHint = t(
+    sourceReadinessKey ?? "analysis.sourcesReady",
+  );
   const selectedProvider = useMemo(
     () => providers.providers.find((provider) => provider.id === target?.provider),
     [providers, target],
@@ -3019,7 +3085,6 @@ export function LectureWeaver(
     ready &&
     !busy;
   const liveAnalysisHint = (() => {
-    if (busy) return t("analysis.busy");
     if (selectedProvider === undefined || target === null) {
       return t("analysis.chooseProvider");
     }
@@ -3036,9 +3101,14 @@ export function LectureWeaver(
     if (!selectedProviderReady) {
       return t("analysis.enterKey", { provider: selectedProvider.label });
     }
-    if (!ready) return t("analysis.addSources");
+    if (sourceReadinessKey !== null) return sourceReadinessHint;
+    if (busy) return t("analysis.busy");
     return t("analysis.ready", { provider: selectedProvider.label });
   })();
+  const liveAnalysisDescriptionId =
+    liveAnalysisHint === sourceReadinessHint
+      ? "source-readiness"
+      : "live-analysis-readiness";
   const openAiSessionApiKey = useMemo(() => {
     const value = sessionProviderKeys.openai;
     return sessionKeyStatus(value) === "valid" ? value : undefined;
@@ -3113,6 +3183,16 @@ export function LectureWeaver(
         window.clearTimeout(revealOutputTimerRef.current);
         revealOutputTimerRef.current = null;
       }
+      if (lecturePasteAutoValidationTimerRef.current !== null) {
+        window.clearTimeout(lecturePasteAutoValidationTimerRef.current);
+        lecturePasteAutoValidationTimerRef.current = null;
+      }
+      if (transcriptPasteAutoValidationTimerRef.current !== null) {
+        window.clearTimeout(transcriptPasteAutoValidationTimerRef.current);
+        transcriptPasteAutoValidationTimerRef.current = null;
+      }
+      lecturePasteValidationVersionRef.current += 1;
+      pasteValidationVersionRef.current += 1;
     };
   }, []);
 
@@ -3169,6 +3249,20 @@ export function LectureWeaver(
     }
   };
 
+  const cancelLecturePasteAutoValidation = () => {
+    if (lecturePasteAutoValidationTimerRef.current !== null) {
+      window.clearTimeout(lecturePasteAutoValidationTimerRef.current);
+      lecturePasteAutoValidationTimerRef.current = null;
+    }
+  };
+
+  const cancelTranscriptPasteAutoValidation = () => {
+    if (transcriptPasteAutoValidationTimerRef.current !== null) {
+      window.clearTimeout(transcriptPasteAutoValidationTimerRef.current);
+      transcriptPasteAutoValidationTimerRef.current = null;
+    }
+  };
+
   const clearPipelineAfterSourceChange = () => {
     cancelRevealOutput();
     setProcessed(null);
@@ -3180,8 +3274,12 @@ export function LectureWeaver(
   };
 
   const updateFile = (sourceType: SourceType, file: File) => {
+    if (sourceType === "slides") {
+      cancelLecturePasteAutoValidation();
+    }
     setFiles((current) => ({ ...current, [sourceType]: file }));
     if (sourceType === "transcript") {
+      cancelTranscriptPasteAutoValidation();
       pasteValidationVersionRef.current += 1;
       transcriptionRequestRef.current?.abort();
       transcriptionRequestRef.current = null;
@@ -3197,6 +3295,7 @@ export function LectureWeaver(
 
   const chooseLectureSourceMode = (nextMode: LectureSourceMode) => {
     if (nextMode === lectureSourceMode) return;
+    cancelLecturePasteAutoValidation();
     lecturePasteValidationVersionRef.current += 1;
     setLectureSourceMode(nextMode);
     setFiles((current) => {
@@ -3206,12 +3305,20 @@ export function LectureWeaver(
     });
     setPastedLectureState({ status: "idle" });
     clearPipelineAfterSourceChange();
+    if (nextMode === "paste" && pastedLecture.trim().length > 0) {
+      const scheduledVersion = lecturePasteValidationVersionRef.current;
+      lecturePasteAutoValidationTimerRef.current = window.setTimeout(() => {
+        if (lecturePasteValidationVersionRef.current !== scheduledVersion) return;
+        void acceptPastedLecture(pastedLecture);
+      }, PASTE_AUTO_VALIDATE_DELAY_MS);
+    }
   };
 
   const chooseLectureFile = (
     nextMode: Exclude<LectureSourceMode, "paste">,
     file: File,
   ) => {
+    cancelLecturePasteAutoValidation();
     lecturePasteValidationVersionRef.current += 1;
     setLectureSourceMode(nextMode);
     setPastedLecture("");
@@ -3220,6 +3327,7 @@ export function LectureWeaver(
   };
 
   const changePastedLecture = (value: string) => {
+    cancelLecturePasteAutoValidation();
     lecturePasteValidationVersionRef.current += 1;
     setPastedLecture(value);
     setPastedLectureState({ status: "idle" });
@@ -3231,32 +3339,34 @@ export function LectureWeaver(
       });
     }
     clearPipelineAfterSourceChange();
+    if (lectureSourceMode === "paste" && value.trim().length > 0) {
+      const scheduledVersion = lecturePasteValidationVersionRef.current;
+      lecturePasteAutoValidationTimerRef.current = window.setTimeout(() => {
+        if (lecturePasteValidationVersionRef.current !== scheduledVersion) return;
+        void acceptPastedLecture(value);
+      }, PASTE_AUTO_VALIDATE_DELAY_MS);
+    }
   };
 
   const clearPastedLecture = () => {
     changePastedLecture("");
   };
 
-  const acceptPastedLecture = async () => {
-    const rawLecture = pastedLecture;
+  const acceptPastedLecture = async (rawLecture = pastedLecture) => {
+    cancelLecturePasteAutoValidation();
     const validationVersion = lecturePasteValidationVersionRef.current + 1;
     lecturePasteValidationVersionRef.current = validationVersion;
     setPastedLectureState({ status: "validating" });
     clearPipelineAfterSourceChange();
 
-    const lectureFile = new File([rawLecture], "pasted-lecture.txt", {
-      type: "text/plain",
-    });
     try {
-      const validatedText = await readLectureTextFile(lectureFile);
+      const lectureFile = await createValidatedPastedTextFile({
+        rawText: rawLecture,
+        fileName: "pasted-lecture.txt",
+        readText: readLectureTextFile,
+        emptyMessage: t("lecture.pasteEmptyError"),
+      });
       if (lecturePasteValidationVersionRef.current !== validationVersion) return;
-      if (normalizeSourceText(validatedText).length === 0) {
-        setPastedLectureState({
-          status: "error",
-          message: t("lecture.pasteEmptyError"),
-        });
-        return;
-      }
       setFiles((current) => ({ ...current, slides: lectureFile }));
       setLectureSourceMode("paste");
       setPastedLectureState({ status: "ready" });
@@ -3285,6 +3395,8 @@ export function LectureWeaver(
 
   const chooseSpokenSourceMode = (nextMode: SpokenSourceMode) => {
     if (nextMode === spokenSourceMode) return;
+    cancelTranscriptPasteAutoValidation();
+    pasteValidationVersionRef.current += 1;
     cancelRevealOutput();
     if (nextMode !== "audio") {
       transcriptionRequestRef.current?.abort();
@@ -3297,9 +3409,25 @@ export function LectureWeaver(
     setError(null);
     setEvidenceSelection(null);
     setResultView("notes");
+    if (
+      nextMode === "paste" &&
+      pastedTranscript.trim().length > 0 &&
+      !(
+        transcriptInputKind === "paste" &&
+        pastedTranscriptState.status === "ready" &&
+        files.transcript !== undefined
+      )
+    ) {
+      const scheduledVersion = pasteValidationVersionRef.current;
+      transcriptPasteAutoValidationTimerRef.current = window.setTimeout(() => {
+        if (pasteValidationVersionRef.current !== scheduledVersion) return;
+        void acceptPastedTranscript(pastedTranscript);
+      }, PASTE_AUTO_VALIDATE_DELAY_MS);
+    }
   };
 
   const changePastedTranscript = (value: string) => {
+    cancelTranscriptPasteAutoValidation();
     pasteValidationVersionRef.current += 1;
     setPastedTranscript(value);
     setPastedTranscriptState({ status: "idle" });
@@ -3317,14 +3445,21 @@ export function LectureWeaver(
     setError(null);
     setEvidenceSelection(null);
     setResultView("notes");
+    if (spokenSourceMode === "paste" && value.trim().length > 0) {
+      const scheduledVersion = pasteValidationVersionRef.current;
+      transcriptPasteAutoValidationTimerRef.current = window.setTimeout(() => {
+        if (pasteValidationVersionRef.current !== scheduledVersion) return;
+        void acceptPastedTranscript(value);
+      }, PASTE_AUTO_VALIDATE_DELAY_MS);
+    }
   };
 
   const clearPastedTranscript = () => {
     changePastedTranscript("");
   };
 
-  const acceptPastedTranscript = async () => {
-    const rawTranscript = pastedTranscript;
+  const acceptPastedTranscript = async (rawTranscript = pastedTranscript) => {
+    cancelTranscriptPasteAutoValidation();
     const validationVersion = pasteValidationVersionRef.current + 1;
     pasteValidationVersionRef.current = validationVersion;
     setPastedTranscriptState({ status: "validating" });
@@ -3335,19 +3470,14 @@ export function LectureWeaver(
     setEvidenceSelection(null);
     setResultView("notes");
 
-    const transcriptFile = new File([rawTranscript], "pasted-transcript.txt", {
-      type: "text/plain",
-    });
     try {
-      const validatedText = await readTranscriptFile(transcriptFile);
+      const transcriptFile = await createValidatedPastedTextFile({
+        rawText: rawTranscript,
+        fileName: "pasted-transcript.txt",
+        readText: readTranscriptFile,
+        emptyMessage: t("spoken.pasteEmptyError"),
+      });
       if (pasteValidationVersionRef.current !== validationVersion) return;
-      if (normalizeSourceText(validatedText).length === 0) {
-        setPastedTranscriptState({
-          status: "error",
-          message: t("spoken.pasteEmptyError"),
-        });
-        return;
-      }
       transcriptionRequestRef.current?.abort();
       transcriptionRequestRef.current = null;
       setFiles((current) => ({ ...current, transcript: transcriptFile }));
@@ -3607,6 +3737,10 @@ export function LectureWeaver(
   };
 
   const tryDemo = async () => {
+    cancelLecturePasteAutoValidation();
+    cancelTranscriptPasteAutoValidation();
+    lecturePasteValidationVersionRef.current += 1;
+    pasteValidationVersionRef.current += 1;
     transcriptionRequestRef.current?.abort();
     transcriptionRequestRef.current = null;
     setMode("loading");
@@ -3726,6 +3860,8 @@ export function LectureWeaver(
 
   const reset = () => {
     cancelRevealOutput();
+    cancelLecturePasteAutoValidation();
+    cancelTranscriptPasteAutoValidation();
     transcriptionRequestRef.current?.abort();
     transcriptionRequestRef.current = null;
     clearAllSessionProviderKeys();
@@ -3871,10 +4007,20 @@ export function LectureWeaver(
         <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-[#14213d]/10 bg-white/50 p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="flex items-center gap-2 text-xs leading-5 text-[#53627b]"><Lock className="size-4 shrink-0 text-[#2f837c]" /> {t("upload.privacy")}</p>
           <div className="flex min-w-0 flex-col gap-2 sm:items-end">
+            <p
+              id="source-readiness"
+              aria-live="polite"
+              className={`max-w-xl text-sm font-bold leading-5 sm:text-right ${
+                ready ? "text-[#1f625e]" : "text-[#765511]"
+              }`}
+            >
+              {sourceReadinessHint}
+            </p>
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               <button
                 type="button"
                 disabled={!ready || busy}
+                aria-describedby="source-readiness"
                 onClick={() => { if (ready) void runManualPipeline(false); }}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#14213d]/15 bg-white px-5 text-sm font-bold text-[#14213d] transition hover:bg-[#f7f4ec] disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -3885,7 +4031,7 @@ export function LectureWeaver(
                 <button
                   type="button"
                   disabled={!canAnalyzeLive}
-                  aria-describedby="live-analysis-readiness"
+                  aria-describedby={liveAnalysisDescriptionId}
                   onClick={() => { if (canAnalyzeLive) void runManualPipeline(true); }}
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#2f837c] px-5 text-sm font-bold text-white transition hover:bg-[#1f625e] disabled:cursor-not-allowed disabled:bg-[#14213d]/20"
                 >
@@ -3894,15 +4040,17 @@ export function LectureWeaver(
                 </button>
               )}
             </div>
-            <p
-              id="live-analysis-readiness"
-              aria-live="polite"
-              className={`max-w-xl text-xs leading-5 sm:text-right ${
-                canAnalyzeLive ? "font-bold text-[#1f625e]" : "text-[#765511]"
-              }`}
-            >
-              {liveAnalysisHint}
-            </p>
+            {liveAnalysisHint !== sourceReadinessHint && (
+              <p
+                id="live-analysis-readiness"
+                aria-live="polite"
+                className={`max-w-xl text-sm leading-5 sm:text-right ${
+                  canAnalyzeLive ? "font-bold text-[#1f625e]" : "text-[#765511]"
+                }`}
+              >
+                {liveAnalysisHint}
+              </p>
+            )}
           </div>
         </div>
       </section>

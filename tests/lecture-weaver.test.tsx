@@ -534,6 +534,42 @@ describe("LectureWeaver client workflow", () => {
     );
   });
 
+  it("describes the next missing source until live analysis is ready", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+
+    render(<LectureWeaver providers={configuredProviders} />);
+
+    const liveAnalysisButton = screen.getByRole("button", {
+      name: "Extract and analyze with DeepSeek",
+    });
+    expect(liveAnalysisButton).toBeDisabled();
+    expect(liveAnalysisButton).toHaveAccessibleDescription(/lecture/i);
+
+    await user.upload(
+      screen.getByLabelText("Choose lecture PDF file"),
+      selectedFiles.slides,
+    );
+    expect(liveAnalysisButton).toBeDisabled();
+    expect(liveAnalysisButton).toHaveAccessibleDescription(/transcript/i);
+
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    expect(liveAnalysisButton).toBeDisabled();
+    expect(liveAnalysisButton).toHaveAccessibleDescription(/Markdown notes/i);
+
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    expect(liveAnalysisButton).toBeEnabled();
+    expect(liveAnalysisButton).toHaveAccessibleDescription(
+      /DeepSeek is ready/i,
+    );
+  });
+
   it("uses the Chinese interface language for the next live analysis by default", async () => {
     const user = userEvent.setup();
     const selectedFiles = sourceFiles();
@@ -901,10 +937,8 @@ describe("LectureWeaver client workflow", () => {
         value: "Spacing study sessions improves long-term retention.",
       },
     });
-    await user.click(
-      screen.getByRole("button", { name: "Use pasted lecture text" }),
-    );
     expect(await screen.findByText("pasted-lecture.txt")).toBeVisible();
+    expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
 
     await user.upload(
       screen.getByLabelText("Choose transcript file"),
@@ -930,6 +964,63 @@ describe("LectureWeaver client workflow", () => {
     );
   });
 
+  it("invalidates an accepted lecture paste and automatically validates the edited text", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+
+    render(<LectureWeaver />);
+
+    await user.click(
+      within(
+        screen.getByRole("group", { name: "Choose lecture material type" }),
+      ).getByRole("button", { name: "Paste lecture" }),
+    );
+    const lectureTextarea = screen.getByLabelText("Paste lecture text");
+    fireEvent.change(lectureTextarea, {
+      target: { value: "The first pasted lecture draft." },
+    });
+    expect(await screen.findByText("pasted-lecture.txt")).toBeVisible();
+
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    expect(
+      screen.getByRole("button", { name: "Build local source map" }),
+    ).toBeEnabled();
+
+    fireEvent.change(lectureTextarea, {
+      target: {
+        value: "The revised lecture explains retrieval and feedback.",
+      },
+    });
+    expect(screen.queryByText("pasted-lecture.txt")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Build local source map" }),
+    ).toBeDisabled();
+    expect(await screen.findByText("pasted-lecture.txt")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Build local source map" }),
+    ).toBeEnabled();
+    await user.click(
+      screen.getByRole("button", { name: "Build local source map" }),
+    );
+
+    await screen.findByRole("heading", {
+      name: "Your local source map is ready.",
+    });
+    const processedFiles = mockProcessSourceFiles.mock.calls.at(-1)?.[0];
+    expect(processedFiles?.slides.name).toBe("pasted-lecture.txt");
+    await expect(processedFiles?.slides.text()).resolves.toBe(
+      "The revised lecture explains retrieval and feedback.",
+    );
+  });
+
   it("rejects empty and oversized pasted lecture text before processing", async () => {
     const user = userEvent.setup();
     render(<LectureWeaver />);
@@ -940,7 +1031,7 @@ describe("LectureWeaver client workflow", () => {
       ).getByRole("button", { name: "Paste lecture" }),
     );
     await user.click(
-      screen.getByRole("button", { name: "Use pasted lecture text" }),
+      screen.getByRole("button", { name: "Validate lecture text now" }),
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Paste lecture text before continuing.",
@@ -950,7 +1041,7 @@ describe("LectureWeaver client workflow", () => {
       target: { value: "x".repeat(1024 * 1024 + 1) },
     });
     await user.click(
-      screen.getByRole("button", { name: "Use pasted lecture text" }),
+      screen.getByRole("button", { name: "Validate lecture text now" }),
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "pasted-lecture.txt is larger than the 1 MiB lecture text limit.",
@@ -974,7 +1065,7 @@ describe("LectureWeaver client workflow", () => {
       target: { value: "A compact lecture outline." },
     });
     await user.click(
-      screen.getByRole("button", { name: "Use pasted lecture text" }),
+      screen.getByRole("button", { name: "Validate lecture text now" }),
     );
     expect(await screen.findByText("pasted-lecture.txt")).toBeVisible();
 
@@ -1094,7 +1185,7 @@ describe("LectureWeaver client workflow", () => {
       target: { value: "A text alternative for the image-only lecture." },
     });
     await user.click(
-      screen.getByRole("button", { name: "Use pasted lecture text" }),
+      screen.getByRole("button", { name: "Validate lecture text now" }),
     );
     await user.click(
       screen.getByRole("button", { name: "Build local source map" }),
@@ -1184,7 +1275,7 @@ describe("LectureWeaver client workflow", () => {
     expect(screen.getByText("Temporary key active")).toBeVisible();
     expect(liveAnalysisButton).toBeDisabled();
     expect(liveAnalysisButton).toHaveAccessibleDescription(
-      "Add and confirm the lecture, transcript, and notes before analysis.",
+      "Add a lecture PDF/TXT or paste lecture text.",
     );
 
     await user.upload(

@@ -88,9 +88,9 @@ const ENGLISH_UI_MESSAGES = {
   "lecture.pasteLabel": "Paste lecture text",
   "lecture.pastePlaceholder": "Paste the lecture handout, outline, or slide text here…",
   "lecture.pasteDescription":
-    "The text becomes a local TXT file and enters the same validation, chunking, and evidence pipeline as an upload.",
-  "lecture.pasteUse": "Use pasted lecture text",
-  "lecture.pasteReplace": "Update lecture text",
+    "Pasted text validates automatically after a short pause; select Validate lecture text now to run it immediately. It then enters the same local chunking and evidence pipeline as a TXT upload.",
+  "lecture.pasteUse": "Validate lecture text now",
+  "lecture.pasteReplace": "Validate updated lecture text",
   "lecture.pasteClear": "Clear text",
   "lecture.pasteEmptyError": "Paste lecture text before continuing.",
   "lecture.pasteReadySuffix": "lecture text ready",
@@ -106,9 +106,9 @@ const ENGLISH_UI_MESSAGES = {
   "spoken.pasteLabel": "Paste transcript text",
   "spoken.pastePlaceholder": "Paste or type the lecture transcript here…",
   "spoken.pasteDescription":
-    "UTF-8 text is validated through the same local pipeline as an uploaded TXT file.",
-  "spoken.pasteUse": "Use pasted transcript",
-  "spoken.pasteReplace": "Update pasted text",
+    "Pasted text validates automatically after a short pause; select Validate transcript now to run it immediately. It uses the same local pipeline as a TXT upload.",
+  "spoken.pasteUse": "Validate transcript now",
+  "spoken.pasteReplace": "Validate updated transcript",
   "spoken.pasteClear": "Clear pasted text",
   "spoken.pasteEmptyError": "Paste transcript text before continuing.",
   "spoken.pasteReadySuffix": "pasted text ready",
@@ -196,8 +196,23 @@ const ENGLISH_UI_MESSAGES = {
   "analysis.kimiRegion": "Choose the Kimi API region before analysis.",
   "analysis.enterKey":
     "Enter a valid temporary {provider} key above, or configure its deployment key.",
-  "analysis.addSources":
-    "Add and confirm the lecture, transcript, and notes before analysis.",
+  "analysis.sourcesReady": "Lecture, transcript, and notes are ready.",
+  "analysis.missingLecture":
+    "Add a lecture PDF/TXT or paste lecture text.",
+  "analysis.preparingLecturePaste":
+    "Wait for the pasted lecture text to validate, or validate it now.",
+  "analysis.fixLecturePaste":
+    "Fix the pasted lecture text, then validate it again.",
+  "analysis.missingTranscript":
+    "Add a transcript TXT, paste transcript text, or use lecture audio.",
+  "analysis.preparingTranscriptPaste":
+    "Wait for the pasted transcript to validate, or validate it now.",
+  "analysis.fixTranscriptPaste":
+    "Fix the pasted transcript, then validate it again.",
+  "analysis.missingAudio": "Add a lecture audio file.",
+  "analysis.transcribeAudio": "Transcribe the selected lecture audio.",
+  "analysis.missingNotes":
+    "Upload your existing Markdown notes as a .md or .markdown file.",
   "analysis.busy":
     "Wait for the current processing step to finish before starting analysis.",
   "analysis.ready":
@@ -504,9 +519,9 @@ const SIMPLIFIED_CHINESE_UI_MESSAGES = {
   "lecture.pasteLabel": "粘贴讲义文本",
   "lecture.pastePlaceholder": "在此粘贴讲义、课程提纲或幻灯片文本…",
   "lecture.pasteDescription":
-    "文本会成为本地 TXT 文件，并进入与上传文件相同的验证、分块和证据流程。",
-  "lecture.pasteUse": "使用粘贴的讲义文本",
-  "lecture.pasteReplace": "更新讲义文本",
+    "粘贴后稍作停顿会自动验证；点击“立即验证讲义文本”可马上开始。验证后会进入与上传 TXT 相同的本地分块和证据流程。",
+  "lecture.pasteUse": "立即验证讲义文本",
+  "lecture.pasteReplace": "立即验证更新后的讲义文本",
   "lecture.pasteClear": "清除文本",
   "lecture.pasteEmptyError": "请先粘贴讲义文本再继续。",
   "lecture.pasteReadySuffix": "讲义文本已就绪",
@@ -522,9 +537,9 @@ const SIMPLIFIED_CHINESE_UI_MESSAGES = {
   "spoken.pasteLabel": "粘贴讲稿文本",
   "spoken.pastePlaceholder": "在此粘贴或输入课堂讲稿…",
   "spoken.pasteDescription":
-    "UTF-8 文本会通过与上传 TXT 文件相同的本地流程进行验证。",
-  "spoken.pasteUse": "使用粘贴的讲稿",
-  "spoken.pasteReplace": "更新粘贴文本",
+    "粘贴后稍作停顿会自动验证；点击“立即验证讲稿”可马上开始，并使用与上传 TXT 相同的本地流程。",
+  "spoken.pasteUse": "立即验证讲稿",
+  "spoken.pasteReplace": "立即验证更新后的讲稿",
   "spoken.pasteClear": "清除粘贴文本",
   "spoken.pasteEmptyError": "请先粘贴讲稿文本再继续。",
   "spoken.pasteReadySuffix": "粘贴文本已就绪",
@@ -611,7 +626,20 @@ const SIMPLIFIED_CHINESE_UI_MESSAGES = {
   "analysis.kimiRegion": "请先选择 Kimi API 区域。",
   "analysis.enterKey":
     "请在上方输入有效的临时 {provider} 密钥，或为该服务商配置部署密钥。",
-  "analysis.addSources": "请先添加并确认讲义、讲稿和笔记。",
+  "analysis.sourcesReady": "讲义、讲稿和笔记均已就绪。",
+  "analysis.missingLecture": "添加讲义 PDF/TXT，或粘贴讲义文本。",
+  "analysis.preparingLecturePaste":
+    "请等待粘贴的讲义文本完成验证，或立即验证。",
+  "analysis.fixLecturePaste":
+    "请修正粘贴的讲义文本，然后重新验证。",
+  "analysis.missingTranscript":
+    "添加讲稿 TXT、粘贴讲稿文本，或使用课堂音频。",
+  "analysis.preparingTranscriptPaste":
+    "请等待粘贴的讲稿完成验证，或立即验证。",
+  "analysis.fixTranscriptPaste": "请修正粘贴的讲稿，然后重新验证。",
+  "analysis.missingAudio": "添加课堂音频文件。",
+  "analysis.transcribeAudio": "转录已选择的课堂音频。",
+  "analysis.missingNotes": "请将现有笔记作为 .md 或 .markdown 文件上传。",
   "analysis.busy": "请等待当前处理步骤完成后再开始分析。",
   "analysis.ready":
     "{provider} 已就绪；开始分析会发送规范化后的来源文本。",
@@ -892,9 +920,9 @@ const JAPANESE_UI_MESSAGES = {
   "lecture.pasteLabel": "講義テキストを貼り付け",
   "lecture.pastePlaceholder": "講義資料、アウトライン、またはスライドのテキストをここに貼り付けてください…",
   "lecture.pasteDescription":
-    "テキストはローカル TXT ファイルとなり、アップロードと同じ検証、チャンク化、根拠のパイプラインに入ります。",
-  "lecture.pasteUse": "貼り付けた講義テキストを使用",
-  "lecture.pasteReplace": "講義テキストを更新",
+    "貼り付け後、少し待つと自動で検証されます。「講義テキストを今すぐ検証」を選ぶと、すぐに開始できます。検証後は TXT アップロードと同じローカルのチャンク化・根拠パイプラインに入ります。",
+  "lecture.pasteUse": "講義テキストを今すぐ検証",
+  "lecture.pasteReplace": "更新した講義テキストを今すぐ検証",
   "lecture.pasteClear": "テキストを消去",
   "lecture.pasteEmptyError": "続行する前に講義テキストを貼り付けてください。",
   "lecture.pasteReadySuffix": "講義テキストの準備完了",
@@ -910,9 +938,9 @@ const JAPANESE_UI_MESSAGES = {
   "spoken.pasteLabel": "文字起こしテキストを貼り付け",
   "spoken.pastePlaceholder": "講義の文字起こしをここに貼り付けるか入力してください…",
   "spoken.pasteDescription":
-    "UTF-8 テキストは、アップロードした TXT ファイルと同じローカル処理で検証されます。",
-  "spoken.pasteUse": "貼り付けた文字起こしを使用",
-  "spoken.pasteReplace": "貼り付けたテキストを更新",
+    "貼り付け後、少し待つと自動で検証されます。「文字起こしを今すぐ検証」を選ぶと、すぐに開始でき、TXT アップロードと同じローカル処理を使用します。",
+  "spoken.pasteUse": "文字起こしを今すぐ検証",
+  "spoken.pasteReplace": "更新した文字起こしを今すぐ検証",
   "spoken.pasteClear": "貼り付けたテキストを消去",
   "spoken.pasteEmptyError": "続行する前に文字起こしテキストを貼り付けてください。",
   "spoken.pasteReadySuffix": "貼り付けテキストの準備完了",
@@ -999,8 +1027,25 @@ const JAPANESE_UI_MESSAGES = {
   "analysis.kimiRegion": "分析前に Kimi API リージョンを選択してください。",
   "analysis.enterKey":
     "上で有効な一時 {provider} キーを入力するか、デプロイキーを設定してください。",
-  "analysis.addSources":
-    "分析前に講義資料、文字起こし、ノートを追加して確定してください。",
+  "analysis.sourcesReady":
+    "講義資料、文字起こし、ノートの準備ができました。",
+  "analysis.missingLecture":
+    "講義 PDF/TXT を追加するか、講義テキストを貼り付けてください。",
+  "analysis.preparingLecturePaste":
+    "貼り付けた講義テキストの検証を待つか、今すぐ検証してください。",
+  "analysis.fixLecturePaste":
+    "貼り付けた講義テキストを修正して、再度検証してください。",
+  "analysis.missingTranscript":
+    "文字起こし TXT を追加するか、テキストを貼り付けるか、講義音声を使用してください。",
+  "analysis.preparingTranscriptPaste":
+    "貼り付けた文字起こしの検証を待つか、今すぐ検証してください。",
+  "analysis.fixTranscriptPaste":
+    "貼り付けた文字起こしを修正して、再度検証してください。",
+  "analysis.missingAudio": "講義音声ファイルを追加してください。",
+  "analysis.transcribeAudio":
+    "選択した講義音声を文字起こししてください。",
+  "analysis.missingNotes":
+    "既存ノートを .md または .markdown ファイルとしてアップロードしてください。",
   "analysis.busy":
     "現在の処理が完了してから分析を開始してください。",
   "analysis.ready":
@@ -1283,9 +1328,9 @@ const KOREAN_UI_MESSAGES = {
   "lecture.pasteLabel": "강의 텍스트 붙여넣기",
   "lecture.pastePlaceholder": "강의 자료, 개요 또는 슬라이드 텍스트를 여기에 붙여넣으세요…",
   "lecture.pasteDescription":
-    "텍스트는 로컬 TXT 파일이 되어 업로드와 동일한 검증, 청크 분할 및 근거 파이프라인을 거칩니다.",
-  "lecture.pasteUse": "붙여넣은 강의 텍스트 사용",
-  "lecture.pasteReplace": "강의 텍스트 업데이트",
+    "붙여넣은 뒤 잠시 기다리면 자동으로 검증됩니다. ‘강의 텍스트 지금 검증’을 선택하면 바로 시작되며, 검증 후 TXT 업로드와 동일한 로컬 청크 분할 및 근거 파이프라인을 거칩니다.",
+  "lecture.pasteUse": "강의 텍스트 지금 검증",
+  "lecture.pasteReplace": "업데이트한 강의 텍스트 지금 검증",
   "lecture.pasteClear": "텍스트 지우기",
   "lecture.pasteEmptyError": "계속하기 전에 강의 텍스트를 붙여넣으세요.",
   "lecture.pasteReadySuffix": "강의 텍스트 준비 완료",
@@ -1301,9 +1346,9 @@ const KOREAN_UI_MESSAGES = {
   "spoken.pasteLabel": "전사문 텍스트 붙여넣기",
   "spoken.pastePlaceholder": "강의 전사문을 여기에 붙여넣거나 입력하세요…",
   "spoken.pasteDescription":
-    "UTF-8 텍스트는 업로드한 TXT 파일과 동일한 로컬 파이프라인으로 검증됩니다.",
-  "spoken.pasteUse": "붙여넣은 전사문 사용",
-  "spoken.pasteReplace": "붙여넣은 텍스트 업데이트",
+    "붙여넣은 뒤 잠시 기다리면 자동으로 검증됩니다. ‘전사문 지금 검증’을 선택하면 바로 시작되며, TXT 업로드와 동일한 로컬 파이프라인을 사용합니다.",
+  "spoken.pasteUse": "전사문 지금 검증",
+  "spoken.pasteReplace": "업데이트한 전사문 지금 검증",
   "spoken.pasteClear": "붙여넣은 텍스트 지우기",
   "spoken.pasteEmptyError": "계속하기 전에 전사문 텍스트를 붙여넣으세요.",
   "spoken.pasteReadySuffix": "붙여넣은 텍스트 준비 완료",
@@ -1390,8 +1435,23 @@ const KOREAN_UI_MESSAGES = {
   "analysis.kimiRegion": "분석 전에 Kimi API 리전을 선택하세요.",
   "analysis.enterKey":
     "위에 유효한 임시 {provider} 키를 입력하거나 배포 키를 설정하세요.",
-  "analysis.addSources":
-    "분석 전에 강의 자료, 전사문, 노트를 추가하고 확정하세요.",
+  "analysis.sourcesReady": "강의 자료, 전사문, 노트가 준비되었습니다.",
+  "analysis.missingLecture":
+    "강의 PDF/TXT를 추가하거나 강의 텍스트를 붙여넣으세요.",
+  "analysis.preparingLecturePaste":
+    "붙여넣은 강의 텍스트의 검증을 기다리거나 지금 검증하세요.",
+  "analysis.fixLecturePaste":
+    "붙여넣은 강의 텍스트를 수정한 뒤 다시 검증하세요.",
+  "analysis.missingTranscript":
+    "전사문 TXT를 추가하거나 텍스트를 붙여넣거나 강의 오디오를 사용하세요.",
+  "analysis.preparingTranscriptPaste":
+    "붙여넣은 전사문의 검증을 기다리거나 지금 검증하세요.",
+  "analysis.fixTranscriptPaste":
+    "붙여넣은 전사문을 수정한 뒤 다시 검증하세요.",
+  "analysis.missingAudio": "강의 오디오 파일을 추가하세요.",
+  "analysis.transcribeAudio": "선택한 강의 오디오를 전사하세요.",
+  "analysis.missingNotes":
+    "기존 노트를 .md 또는 .markdown 파일로 업로드하세요.",
   "analysis.busy": "현재 처리가 끝난 뒤 분석을 시작하세요.",
   "analysis.ready":
     "{provider} 준비가 완료되었습니다. 분석을 시작하면 정규화된 소스 텍스트가 전송됩니다.",
