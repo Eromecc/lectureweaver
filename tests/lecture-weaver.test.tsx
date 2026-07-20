@@ -661,7 +661,7 @@ describe("LectureWeaver client workflow", () => {
     expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(
       processed,
       { provider: "deepseek", model: "deepseek-v4-pro" },
-      { ankiCards: true },
+      { ankiCards: false },
       { outputLanguage: "zh-CN" },
     );
   });
@@ -734,6 +734,11 @@ describe("LectureWeaver client workflow", () => {
 
     render(<LectureWeaver providers={configuredProviders} />);
 
+    const ankiOption = screen.getByRole("checkbox", {
+      name: /Create Anki cards/,
+    });
+    expect(ankiOption).not.toBeChecked();
+
     expect(
       screen.getByRole("button", { name: "Build local source map" }),
     ).toBeDisabled();
@@ -795,6 +800,7 @@ describe("LectureWeaver client workflow", () => {
       screen.getByRole("link", { name: /Retrieval practice/ }),
     ).toHaveAttribute("href", "#enhanced-section-1");
     expect(screen.getByRole("button", { name: "Anki cards · 4" })).toBeVisible();
+    expect(ankiOption).toBeChecked();
     expect(mockRequestLiveAnalysis).not.toHaveBeenCalled();
   });
 
@@ -1341,7 +1347,7 @@ describe("LectureWeaver client workflow", () => {
     expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(
       processed,
       { provider: "deepseek", model: "deepseek-v4-pro" },
-      { ankiCards: true },
+      { ankiCards: false },
       { outputLanguage: "en", sessionApiKey: temporaryKey },
     );
     expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
@@ -1396,7 +1402,7 @@ describe("LectureWeaver client workflow", () => {
     expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(
       processed,
       { provider: "kimi", model: "kimi-k3" },
-      { ankiCards: true },
+      { ankiCards: false },
       {
         outputLanguage: "en",
         sessionApiKey: temporaryKey,
@@ -1416,19 +1422,27 @@ describe("LectureWeaver client workflow", () => {
     const kimiInput = screen.getByLabelText("Temporary Kimi API key");
     const kimiRegion = screen.getByLabelText("Kimi API region");
 
-    await user.type(openAiInput, "temporary-openai-key-123456");
-    await user.type(deepSeekInput, "temporary-deepseek-key-123456");
+    fireEvent.change(openAiInput, {
+      target: { value: "temporary-openai-key-123456" },
+    });
+    fireEvent.change(deepSeekInput, {
+      target: { value: "temporary-deepseek-key-123456" },
+    });
     await user.click(screen.getByRole("button", { name: "Clear OpenAI key" }));
     expect(openAiInput).toHaveValue("");
     expect(deepSeekInput).toHaveValue("temporary-deepseek-key-123456");
 
-    await user.type(kimiInput, "temporary-kimi-key-123456");
+    fireEvent.change(kimiInput, {
+      target: { value: "temporary-kimi-key-123456" },
+    });
     await user.selectOptions(kimiRegion, "global");
     await user.click(screen.getByRole("button", { name: "Clear Kimi key" }));
     expect(kimiInput).toHaveValue("");
     expect(kimiRegion).toHaveValue("");
 
-    await user.type(kimiInput, "temporary-kimi-key-123456");
+    fireEvent.change(kimiInput, {
+      target: { value: "temporary-kimi-key-123456" },
+    });
     await user.selectOptions(kimiRegion, "cn");
     await user.click(
       screen.getByRole("button", { name: "Clear all temporary keys" }),
@@ -1437,16 +1451,24 @@ describe("LectureWeaver client workflow", () => {
     expect(kimiInput).toHaveValue("");
     expect(kimiRegion).toHaveValue("");
 
-    await user.type(deepSeekInput, "temporary-deepseek-key-123456");
-    await user.type(kimiInput, "temporary-kimi-key-123456");
+    fireEvent.change(deepSeekInput, {
+      target: { value: "temporary-deepseek-key-123456" },
+    });
+    fireEvent.change(kimiInput, {
+      target: { value: "temporary-kimi-key-123456" },
+    });
     await user.selectOptions(kimiRegion, "global");
     act(() => window.dispatchEvent(new Event("pagehide")));
     expect(deepSeekInput).toHaveValue("");
     expect(kimiInput).toHaveValue("");
     expect(kimiRegion).toHaveValue("");
 
-    await user.type(openAiInput, "temporary-openai-key-123456");
-    await user.type(kimiInput, "temporary-kimi-key-123456");
+    fireEvent.change(openAiInput, {
+      target: { value: "temporary-openai-key-123456" },
+    });
+    fireEvent.change(kimiInput, {
+      target: { value: "temporary-kimi-key-123456" },
+    });
     await user.selectOptions(kimiRegion, "cn");
     await user.click(screen.getByRole("button", { name: "Reset" }));
     expect(openAiInput).toHaveValue("");
@@ -1463,10 +1485,9 @@ describe("LectureWeaver client workflow", () => {
     mockRequestLiveAnalysis.mockResolvedValue(liveResult);
 
     render(<LectureWeaver providers={temporaryKeyCatalog} />);
-    await user.type(
-      screen.getByLabelText("Temporary DeepSeek API key"),
-      temporaryKey,
-    );
+    fireEvent.change(screen.getByLabelText("Temporary DeepSeek API key"), {
+      target: { value: temporaryKey },
+    });
     await user.upload(
       screen.getByLabelText("Choose lecture PDF file"),
       selectedFiles.slides,
@@ -1494,7 +1515,7 @@ describe("LectureWeaver client workflow", () => {
     expect(mockRequestLiveAnalysis).toHaveBeenCalledWith(
       processed,
       { provider: "deepseek", model: "deepseek-v4-pro" },
-      { ankiCards: true },
+      { ankiCards: false },
       { outputLanguage: "en", sessionApiKey: temporaryKey },
     );
     expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
@@ -1539,7 +1560,7 @@ describe("LectureWeaver client workflow", () => {
         provider: "deepseek",
         model: "deepseek-v4-pro",
       },
-      { ankiCards: true },
+      { ankiCards: false },
       { outputLanguage: "en" },
     );
     expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
@@ -1601,7 +1622,7 @@ describe("LectureWeaver client workflow", () => {
     ).toBeVisible();
   });
 
-  it("honors the optional Anki switch in the live request and result workspace", async () => {
+  it("defaults optional Anki cards off for live requests and the result workspace", async () => {
     const user = userEvent.setup();
     const selectedFiles = sourceFiles();
     mockProcessSourceFiles.mockResolvedValue(processed);
@@ -1611,8 +1632,6 @@ describe("LectureWeaver client workflow", () => {
     const ankiOption = screen.getByRole("checkbox", {
       name: /Create Anki cards/,
     });
-    expect(ankiOption).toBeChecked();
-    await user.click(ankiOption);
     expect(ankiOption).not.toBeChecked();
 
     await user.upload(screen.getByLabelText("Choose lecture PDF file"), selectedFiles.slides);
@@ -1640,6 +1659,27 @@ describe("LectureWeaver client workflow", () => {
     expect(
       screen.getByRole("heading", { name: "Anki cards were not requested." }),
     ).toBeVisible();
+  });
+
+  it("restores the optional Anki setting to off on reset", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    const ankiOption = screen.getByRole("checkbox", {
+      name: /Create Anki cards/,
+    });
+
+    expect(ankiOption).not.toBeChecked();
+    await user.click(ankiOption);
+    expect(ankiOption).toBeChecked();
+    await user.upload(
+      screen.getByLabelText("Choose lecture PDF file"),
+      selectedFiles.slides,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    expect(ankiOption).not.toBeChecked();
   });
 
   it("preserves the current study pack when changing the next-run Anki option", async () => {
@@ -1739,6 +1779,9 @@ describe("LectureWeaver client workflow", () => {
       .mockResolvedValueOnce(noAnkiLiveResult);
 
     render(<LectureWeaver providers={configuredProviders} />);
+    await user.click(
+      screen.getByRole("checkbox", { name: /Create Anki cards/ }),
+    );
     await user.upload(
       screen.getByLabelText("Choose lecture PDF file"),
       selectedFiles.slides,
@@ -1759,7 +1802,7 @@ describe("LectureWeaver client workflow", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
-      "Retry once. If it times out again, choose DeepSeek V4 Flash, turn off optional Anki cards, or select another credential-ready provider.",
+      "Retry once with optional Anki cards off. If it times out again, choose DeepSeek V4 Flash or another credential-ready provider.",
     );
     expect(screen.getByText("Local source map ready")).toBeVisible();
 
@@ -1872,7 +1915,7 @@ describe("LectureWeaver client workflow", () => {
         provider: "kimi",
         model: "kimi-k3",
       },
-      { ankiCards: true },
+      { ankiCards: false },
       { outputLanguage: "en" },
     );
     expect(mockProcessSourceFiles).toHaveBeenCalledTimes(1);

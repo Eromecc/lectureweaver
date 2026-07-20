@@ -108,7 +108,7 @@ afterEach(() => {
 
 describe("POST /api/analyze", () => {
   it("allows the provider timeout to complete before the route deadline", () => {
-    expect(ANALYSIS_PROVIDER_TIMEOUT_MS).toBe(150_000);
+    expect(ANALYSIS_PROVIDER_TIMEOUT_MS).toBe(120_000);
     expect(ANALYSIS_CLIENT_TIMEOUT_MS).toBe(170_000);
     expect(ANALYSIS_PROVIDER_TIMEOUT_MS).toBeLessThan(
       ANALYSIS_CLIENT_TIMEOUT_MS,

@@ -675,7 +675,7 @@ describe("DeepSeek and Kimi Chat Completions adapters", () => {
       model: "deepseek-v4-flash",
       thinking: { type: "disabled" },
       response_format: { type: "json_object" },
-      max_tokens: 12_000,
+      max_tokens: 8_000,
       stream: false,
     });
     expect(body).not.toHaveProperty("max_completion_tokens");
@@ -720,7 +720,7 @@ describe("DeepSeek and Kimi Chat Completions adapters", () => {
           schema: { type: "object", additionalProperties: false },
         },
       },
-      max_completion_tokens: 12_000,
+      max_completion_tokens: 8_000,
       stream: false,
     });
     expect(body).not.toHaveProperty("thinking");
@@ -759,6 +759,69 @@ describe("DeepSeek and Kimi Chat Completions adapters", () => {
       "message",
       expect.stringContaining("fake-timeout-secret"),
     );
+  });
+
+  it("aborts a stalled successful response body at the provider deadline", async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      capturedSignal = init?.signal ?? undefined;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener(
+            "abort",
+            () => controller.error(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        },
+      });
+
+      return new Response(body, { status: 200 });
+    });
+    const pending = analyzeWithChatCompletions({
+      provider: "deepseek",
+      apiKey: "fake-body-stall-secret",
+      baseUrl: "https://api.deepseek.example",
+      model: "deepseek-v4-flash",
+      chunks: sourceChunks,
+      fetchImpl: fetchMock,
+    });
+    const assertion = expect(pending).rejects.toMatchObject({
+      code: "provider_timeout",
+      status: 504,
+      retryable: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(ANALYSIS_PROVIDER_TIMEOUT_MS - 1);
+    expect(capturedSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await assertion;
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("maps a structural AbortError without relying on DOMException", async () => {
+    const structuralAbort = Object.assign(new Error("request aborted"), {
+      name: "AbortError",
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      throw structuralAbort;
+    });
+
+    await expect(
+      analyzeWithChatCompletions({
+        provider: "kimi",
+        apiKey: "fake-kimi-key",
+        baseUrl: "https://api.moonshot.example/v1",
+        model: "kimi-k3",
+        chunks: sourceChunks,
+        fetchImpl: fetchMock,
+      }),
+    ).rejects.toMatchObject({
+      code: "provider_timeout",
+      status: 504,
+      retryable: true,
+    });
   });
 
   it("maps upstream status and malformed bodies to safe typed errors", async () => {

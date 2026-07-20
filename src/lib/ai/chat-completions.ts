@@ -15,6 +15,7 @@ import {
 } from "./errors";
 import { buildAnalysisInput, buildAnalysisInstructions } from "./prompt";
 import { getProviderLabel } from "./providers";
+import { modelOutputTokenLimit } from "./generation-limits";
 import { ANALYSIS_PROVIDER_TIMEOUT_MS } from "./timeouts";
 import {
   ModelAnalysisWireSchema,
@@ -23,7 +24,6 @@ import {
 
 const MAX_PROVIDER_RESPONSE_BYTES = 250_000;
 const MAX_PROVIDER_ERROR_BYTES = 32_000;
-const MAX_MODEL_OUTPUT_TOKENS = 12_000;
 
 const ChatCompletionEnvelopeSchema = z
   .object({
@@ -92,7 +92,7 @@ function requestBody(
       messages,
       thinking: { type: "disabled" },
       response_format: { type: "json_object" },
-      max_tokens: MAX_MODEL_OUTPUT_TOKENS,
+      max_tokens: modelOutputTokenLimit(outputs),
       stream: false,
     };
   }
@@ -104,7 +104,7 @@ function requestBody(
       ModelAnalysisWireSchema,
       "lectureweaver_analysis",
     ),
-    max_completion_tokens: MAX_MODEL_OUTPUT_TOKENS,
+    max_completion_tokens: modelOutputTokenLimit(outputs),
     stream: false,
   };
 }
@@ -258,7 +258,13 @@ export async function analyzeWithChatCompletions({
     }
   } catch (error: unknown) {
     if (error instanceof ProviderRequestError) throw error;
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (
+      controller.signal.aborted ||
+      (typeof error === "object" &&
+        error !== null &&
+        "name" in error &&
+        error.name === "AbortError")
+    ) {
       throw new ProviderRequestError(
         "provider_timeout",
         `${providerLabel} did not finish within the analysis time limit.`,

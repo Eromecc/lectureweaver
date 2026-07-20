@@ -14,13 +14,12 @@ import {
   providerHttpError,
 } from "./errors";
 import { buildAnalysisInput, buildAnalysisInstructions } from "./prompt";
+import { modelOutputTokenLimit } from "./generation-limits";
 import { ANALYSIS_PROVIDER_TIMEOUT_MS } from "./timeouts";
 import {
   ModelAnalysisWireSchema,
   parseModelAnalysisWire,
 } from "./wire";
-
-const MAX_MODEL_OUTPUT_TOKENS = 12_000;
 
 export type OpenAIInvocation = {
   apiKey: string;
@@ -112,7 +111,7 @@ export const invokeOpenAIResponses: OpenAIInvoker = async ({
     instructions: buildAnalysisInstructions(outputs, outputLanguage),
     input: buildAnalysisInput(chunks, outputs, outputLanguage),
     store: false,
-    max_output_tokens: MAX_MODEL_OUTPUT_TOKENS,
+    max_output_tokens: modelOutputTokenLimit(outputs),
     text: {
       format: zodTextFormat(
         ModelAnalysisWireSchema,

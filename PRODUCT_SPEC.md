@@ -79,7 +79,8 @@ This flow never calls analysis, transcription, or speech services, even when pro
 - If the selected provider has neither a deployment key nor a valid temporary key, no chunks are sent; valid input displays a local source map and offers **Try demo**.
 - The readiness UI requires at least one ready lecture-material or transcript source, while notes remain optional. It identifies a preparing/invalid sole source, incomplete audio transcription, credential, model/provider selection, Kimi region, or active processing step. It explains that **Build local source map** is local-only and that **Extract and analyze with …** is the explicit normalized-text transmission action.
 - If a provider rejects, times out, rate-limits, truncates, or returns invalid output, the source map remains available and the user can manually retry or choose another ready provider.
-- Live analysis uses nested ceilings of 150 seconds for the upstream provider request, 170 seconds for the browser request, and 180 seconds for the application function. The ordering reserves cleanup and error-response headroom instead of allowing the hosting platform to terminate the outer request first.
+- Live analysis uses nested ceilings of 120 seconds for the upstream provider request, 170 seconds for the browser request, and 180 seconds for the application function. The 50-second provider-to-browser gap covers request transfer, function startup, cleanup, and delivery of a typed error before the browser fallback.
+- A one-shot live result is bounded to 8,000 output tokens without optional Anki cards and 10,000 with cards. The generation instructions merge related concepts and constrain assessment, study-guide, and card volume so the lower ceiling reduces work instead of merely truncating otherwise-valid JSON.
 - LectureWeaver does not automatically retry timed-out live analysis. The provider may already have performed billable work even when the application did not receive a valid result, so only an explicit user action starts another paid request.
 - Replacing or resetting files clears stale analysis output.
 
@@ -129,7 +130,7 @@ This flow never calls analysis, transcription, or speech services, even when pro
 - **DeepSeek:** use OpenAI-compatible Chat Completions JSON Output with thinking disabled for this extraction contract. Because JSON Output does not guarantee schema adherence and may return empty content, parse and validate locally and fail closed.
 - **Kimi:** use OpenAI-compatible Chat Completions with `response_format.type=json_schema`, `strict: true`, and a bounded `max_completion_tokens` value. Parse only the final message content.
 - Provider-specific request fields must remain isolated; API compatibility does not imply identical parameter support.
-- `/api/analyze` and `/api/speech` accept validated JSON; `/api/transcribe` accepts only the bounded multipart audio contract. Every server route applies content/size validation, timeouts, response-cache disabling, allowlisted targets/endpoints, explicit credential-mode checks, and secret-safe error mapping. For live analysis, the provider/browser/function timeout layers are 150/170/180 seconds respectively; audio routes retain their separate bounded provider contracts.
+- `/api/analyze` and `/api/speech` accept validated JSON; `/api/transcribe` accepts only the bounded multipart audio contract. Every server route applies content/size validation, timeouts, response-cache disabling, allowlisted targets/endpoints, explicit credential-mode checks, and secret-safe error mapping. For live analysis, the provider/browser/function timeout layers are 120/170/180 seconds respectively; audio routes retain their separate bounded provider contracts.
 
 Current official references:
 
@@ -205,7 +206,7 @@ When speech is requested for a live result, derive narration from the validated 
 
 - Raw PDF, uploaded/pasted lecture or transcript text, and Markdown remain in browser memory and are cleared on refresh.
 - After explicit disclosure and user action, raw recorded-audio bytes cross the application server and are sent to OpenAI for transcription. They are held only for the active request and are not persisted or logged by the application.
-- Live analysis sends normalized chunks containing source text to the selected provider; the selected provider's data-handling terms apply.
+- Live analysis sends source text, structural chunk IDs, source type, and optional heading context to the selected provider; application-owned filenames and trusted locators are omitted from the model prompt and later reattached from the validated source map. The selected provider's data-handling terms apply.
 - Optional speech generation sends validated enhanced-note narration to OpenAI and returns generated audio. The interface must identify the voice as AI-generated.
 - The application does not write audio, transcripts, generated speech, chunks, or results to a database, persistent store, or application log.
 - Deployment API keys remain server-only and must never use a `NEXT_PUBLIC_` name. Temporary keys use only the bounded current-tab/header path above and are never persisted by LectureWeaver.

@@ -2960,7 +2960,7 @@ export function LectureWeaver(
     useState<SessionProviderKeys>({});
   const [sessionKimiRegion, setSessionKimiRegion] =
     useState<KimiRegion | null>(null);
-  const [includeAnki, setIncludeAnki] = useState(true);
+  const [includeAnki, setIncludeAnki] = useState(false);
   const [outputLanguagePreference, setOutputLanguagePreference] =
     useState<OutputLanguagePreference>("follow-interface");
   const [resultView, setResultView] = useState<ResultView>("notes");
@@ -3751,6 +3751,7 @@ export function LectureWeaver(
     setProcessed(null);
     setEvidenceSelection(null);
     setResultView("notes");
+    setIncludeAnki(true);
     setLoadingMessage({ key: "pipeline.loadingDemo" });
     await nextPaint();
     try {
@@ -3788,7 +3789,9 @@ export function LectureWeaver(
       setProcessed(nextProcessed);
       setLoadingMessage({ key: "pipeline.verifyingDemo" });
       await nextPaint();
-      const demoResult = await runFixtureAnalysis(nextProcessed, outputOptions);
+      const demoResult = await runFixtureAnalysis(nextProcessed, {
+        ankiCards: true,
+      });
       setResult(demoResult);
       setMode("ready");
       revealOutput();
@@ -3885,6 +3888,7 @@ export function LectureWeaver(
     setError(null);
     setEvidenceSelection(null);
     setResultView("notes");
+    setIncludeAnki(false);
     setInputKey((value) => value + 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };

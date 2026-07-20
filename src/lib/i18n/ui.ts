@@ -295,7 +295,7 @@ const ENGLISH_UI_MESSAGES = {
   "error.liveRetryRecovery":
     "Your local source map is preserved. Retry, select another ready model, or use the included demo.",
   "error.liveTimeoutRecovery":
-    "Your local source map is preserved. Retry once. If it times out again, choose DeepSeek V4 Flash, turn off optional Anki cards, or select another credential-ready provider.",
+    "Your local source map is preserved. Retry once with optional Anki cards off. If it times out again, choose DeepSeek V4 Flash or another credential-ready provider.",
   "error.liveConfigRecovery":
     "Your local source map is preserved. Check the temporary or deployment credential, select another model, or use the included demo.",
 
@@ -713,7 +713,7 @@ const SIMPLIFIED_CHINESE_UI_MESSAGES = {
   "error.liveRetryRecovery":
     "本地来源地图已保留。请重试、选择其他已就绪模型，或使用内置演示。",
   "error.liveTimeoutRecovery":
-    "本地来源地图已保留。请先重试一次；若再次超时，可选择 DeepSeek V4 Flash、关闭可选 Anki 卡片，或改用其他已配置有效密钥的服务商。",
+    "本地来源地图已保留。请保持可选 Anki 卡片关闭后重试一次；若再次超时，可选择 DeepSeek V4 Flash，或改用其他已配置有效密钥的服务商。",
   "error.liveConfigRecovery":
     "本地来源地图已保留。请检查临时密钥或部署密钥、选择其他模型，或使用内置演示。",
 
@@ -1123,7 +1123,7 @@ const JAPANESE_UI_MESSAGES = {
   "error.liveRetryRecovery":
     "ローカルソースマップは保持されています。再試行するか、別の利用可能なモデルまたは内蔵デモを選択してください。",
   "error.liveTimeoutRecovery":
-    "ローカルソースマップは保持されています。まず一度再試行し、再度タイムアウトする場合は DeepSeek V4 Flash を選ぶか、任意の Anki カードをオフにするか、有効な認証情報がある別のプロバイダーを選んでください。",
+    "ローカルソースマップは保持されています。任意の Anki カードをオフにして一度再試行してください。再度タイムアウトする場合は、DeepSeek V4 Flash または有効な認証情報がある別のプロバイダーを選んでください。",
   "error.liveConfigRecovery":
     "ローカルソースマップは保持されています。一時キーまたはデプロイキーを確認し、別のモデルまたは内蔵デモを選択してください。",
 
@@ -1531,7 +1531,7 @@ const KOREAN_UI_MESSAGES = {
   "error.liveRetryRecovery":
     "로컬 소스 맵은 유지됩니다. 다시 시도하거나 다른 준비된 모델 또는 내장 데모를 선택하세요.",
   "error.liveTimeoutRecovery":
-    "로컬 소스 맵은 유지됩니다. 먼저 한 번 다시 시도하고, 다시 시간 초과가 발생하면 DeepSeek V4 Flash를 선택하거나 선택 사항인 Anki 카드를 끄거나 유효한 인증 정보가 있는 다른 제공업체를 선택하세요.",
+    "로컬 소스 맵은 유지됩니다. 선택 사항인 Anki 카드를 끈 상태로 한 번 다시 시도하세요. 다시 시간 초과가 발생하면 DeepSeek V4 Flash 또는 유효한 인증 정보가 있는 다른 제공업체를 선택하세요.",
   "error.liveConfigRecovery":
     "로컬 소스 맵은 유지됩니다. 임시 키 또는 배포 키를 확인하고 다른 모델 또는 내장 데모를 선택하세요.",
 
