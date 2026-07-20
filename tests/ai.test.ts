@@ -14,6 +14,7 @@ import {
   isAllowedAnalysisTarget,
 } from "@/lib/ai/catalog";
 import { analyzeWithChatCompletions } from "@/lib/ai/chat-completions";
+import { parseDeepSeekAnalysisText } from "@/lib/ai/deepseek-normalize";
 import {
   analyzeWithOpenAI,
   interpretOpenAIResponse,
@@ -24,6 +25,7 @@ import {
   type ProviderAnalyzer,
   type ProviderAnalyzers,
 } from "@/lib/ai/server";
+import { validateModelAnalysisAgainstChunks } from "@/lib/analysis";
 import {
   parseModelAnalysisText,
   parseModelAnalysisWire,
@@ -97,6 +99,61 @@ function completionEnvelope(
       {
         finish_reason: finishReason,
         message: { content },
+      },
+    ],
+  };
+}
+
+function repairableDeepSeekAnalysis(): object {
+  return {
+    summary: "The notes preserve the main spacing concept.",
+    assessments: [
+      {
+        id: "spacing",
+        title: "Spacing",
+        importance: " CORE ",
+        status: " COVERED ",
+        explanation: "The notes retain the important explanation.",
+        evidenceRefs: [
+          {
+            chunkId: "slides:p0001:c01",
+            relevance: "The slide defines spacing.",
+          },
+          {
+            chunkId: "notes:p0001:c01",
+            relevance: "The notes preserve the definition.",
+          },
+        ],
+      },
+    ],
+    enhancedNotes: {
+      title: "Spacing study guide",
+      overview: "# Orientation\n\nSpacing connects review sessions over time.",
+      sections: [
+        {
+          id: "section-spacing",
+          heading: "Spacing",
+          learningObjective: "Understand why spacing supports retention.",
+          changeType: " NEW ",
+          markdown:
+            "## Spacing mechanism\n\nSpace reviews over time.\n\n```text\nnot a heading\n```",
+          assessmentIds: ["spacing"],
+          evidenceRefs: [
+            {
+              chunkId: "transcript:p0001:c01",
+              relevance: "A trusted but unrelated redundant reference.",
+            },
+          ],
+        },
+      ],
+    },
+    ankiCards: [
+      {
+        id: "card-spacing",
+        front: "What is spacing?",
+        back: "Distributing study over time.",
+        assessmentIds: ["spacing"],
+        evidenceRefs: null,
       },
     ],
   };
@@ -646,6 +703,306 @@ describe("DeepSeek and Kimi Chat Completions adapters", () => {
     expect(input).toContain('"changeType":"new"');
     expect(input).not.toContain("use-a-supplied-notes-chunk-id");
     expect(input).not.toContain('"status":"covered"');
+  });
+
+  it("repairs only bounded DeepSeek JSON-mode drift without another request", async () => {
+    const content = `\`\`\`json\n${JSON.stringify({
+      analysis: repairableDeepSeekAnalysis(),
+    })}\n\`\`\``;
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json(completionEnvelope(content)),
+    );
+
+    const result = await analyzeWithChatCompletions({
+      provider: "deepseek",
+      apiKey: "fake-deepseek-key",
+      baseUrl: "https://api.deepseek.example",
+      model: "deepseek-v4-flash",
+      chunks: sourceChunks,
+      outputs: { ankiCards: true },
+      fetchImpl: fetchMock,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.assessments[0]).toMatchObject({
+      importance: "core",
+      status: "covered",
+    });
+    expect(result.assessments[0]).not.toHaveProperty("suggestedPatch");
+    expect(result.enhancedNotes.overview).toContain("### Orientation");
+    expect(result.enhancedNotes.sections[0]).toMatchObject({
+      changeType: "preserved",
+      markdown:
+        "### Spacing mechanism\n\nSpace reviews over time.\n\n```text\nnot a heading\n```",
+      evidenceRefs: [
+        {
+          chunkId: "slides:p0001:c01",
+          relevance: "The slide defines spacing.",
+        },
+        {
+          chunkId: "notes:p0001:c01",
+          relevance: "The notes preserve the definition.",
+        },
+      ],
+    });
+    expect(result.ankiCards[0]?.evidenceRefs).toEqual(
+      result.assessments[0]?.evidenceRefs,
+    );
+    expect(
+      validateModelAnalysisAgainstChunks(result, sourceChunks, {
+        ankiCards: true,
+      }).analysis,
+    ).toEqual(result);
+  });
+
+  it.each(["omitted", "null"] as const)(
+    "canonicalizes %s Anki output only when cards were disabled",
+    async (variant) => {
+      const withoutCards: Record<string, unknown> = {
+        ...validWireAnalysis(),
+      };
+      delete withoutCards.ankiCards;
+      const payload = variant === "null"
+        ? { ...withoutCards, ankiCards: null }
+        : withoutCards;
+      const parsed = parseDeepSeekAnalysisText(JSON.stringify(payload), {
+        chunks: sourceChunks,
+        outputs: { ankiCards: false },
+      });
+
+      expect(parsed.ankiCards).toEqual([]);
+    },
+  );
+
+  it("does not synthesize requested Anki cards", () => {
+    const withoutCards: Record<string, unknown> = {
+      ...validWireAnalysis(),
+    };
+    delete withoutCards.ankiCards;
+
+    expect(() =>
+      parseDeepSeekAnalysisText(JSON.stringify(withoutCards), {
+        chunks: sourceChunks,
+        outputs: { ankiCards: true },
+      }),
+    ).toThrow();
+  });
+
+  it.each(["section", "card"] as const)(
+    "keeps unknown %s evidence fail-closed for semantic validation",
+    (artifact) => {
+      const wire = validWireAnalysis();
+      const owner =
+        artifact === "section"
+          ? wire.enhancedNotes.sections[0]
+          : wire.ankiCards[0];
+      if (owner === undefined) {
+        throw new Error(`The fixture must include an Anki ${artifact}.`);
+      }
+      owner.evidenceRefs = [
+        {
+          chunkId: "slides:p9999:c01",
+          relevance: "This invented artifact reference must not be hidden.",
+        },
+      ];
+
+      const parsed = parseDeepSeekAnalysisText(JSON.stringify(wire), {
+        chunks: sourceChunks,
+        outputs: { ankiCards: true },
+      });
+
+      expect(() =>
+        validateModelAnalysisAgainstChunks(parsed, sourceChunks, {
+          ankiCards: true,
+        }),
+      ).toThrow();
+    },
+  );
+
+  it.each([
+    ["non-array", 42],
+    [
+      "extra-key",
+      [
+        {
+          chunkId: "slides:p0001:c01",
+          relevance: "The slide defines spacing.",
+          extra: "must not be discarded",
+        },
+      ],
+    ],
+  ] as const)("rejects %s artifact evidence instead of repairing it", (_label, evidenceRefs) => {
+    const wire = validWireAnalysis();
+    const section = wire.enhancedNotes.sections[0];
+    if (section === undefined) {
+      throw new Error("The fixture must include an enhanced-note section.");
+    }
+    const rawSection = section as unknown as Record<string, unknown>;
+    rawSection.evidenceRefs = evidenceRefs;
+
+    expect(() =>
+      parseDeepSeekAnalysisText(JSON.stringify(wire), {
+        chunks: sourceChunks,
+        outputs: { ankiCards: true },
+      }),
+    ).toThrow();
+  });
+
+  it("keeps exact DeepSeek repairs isolated from Kimi", async () => {
+    const repairable = `\`\`\`json\n${JSON.stringify({
+      analysis: repairableDeepSeekAnalysis(),
+    })}\n\`\`\``;
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json(completionEnvelope(repairable)),
+    );
+
+    await expect(
+      analyzeWithChatCompletions({
+        provider: "kimi",
+        apiKey: "fake-kimi-key",
+        baseUrl: "https://api.moonshot.example/v1",
+        model: "kimi-k3",
+        chunks: sourceChunks,
+        outputs: { ankiCards: true },
+        fetchImpl: fetchMock,
+      }),
+    ).rejects.toMatchObject({ code: "provider_invalid_output" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not unwrap a DeepSeek analysis wrapper with extra keys", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json(
+        completionEnvelope(
+          JSON.stringify({
+            analysis: repairableDeepSeekAnalysis(),
+            metadata: "must remain an unknown key",
+          }),
+        ),
+      ),
+    );
+
+    await expect(
+      analyzeWithChatCompletions({
+        provider: "deepseek",
+        apiKey: "fake-deepseek-key",
+        baseUrl: "https://api.deepseek.example",
+        model: "deepseek-v4-flash",
+        chunks: sourceChunks,
+        outputs: { ankiCards: true },
+        fetchImpl: fetchMock,
+      }),
+    ).rejects.toMatchObject({ code: "provider_invalid_output" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps unknown DeepSeek assessment evidence fail-closed through server validation", async () => {
+    const wire = validWireAnalysis();
+    const assessment = wire.assessments[0];
+    if (assessment === undefined) {
+      throw new Error("The fixture must include an assessment.");
+    }
+    assessment.evidenceRefs = [
+      {
+        chunkId: "slides:p9999:c01",
+        relevance: "This unknown trust anchor must not be repaired away.",
+      },
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json(completionEnvelope(JSON.stringify(wire))),
+    );
+    const deepSeekAnalyzer: ProviderAnalyzer = ({
+      apiKey,
+      model,
+      chunks,
+      outputs,
+      outputLanguage,
+    }) =>
+      analyzeWithChatCompletions({
+        provider: "deepseek",
+        apiKey,
+        baseUrl: "https://api.deepseek.example",
+        model,
+        chunks,
+        outputs,
+        outputLanguage,
+        fetchImpl: fetchMock,
+      });
+    const request = AnalyzeRequestSchema.parse({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      credentialMode: "deployment",
+      outputs: { ankiCards: true },
+      chunks: sourceChunks,
+    });
+
+    await expect(
+      analyzeWithSelectedProvider(
+        request,
+        { DEEPSEEK_API_KEY: "fake-deepseek-key" },
+        analyzersUsing(deepSeekAnalyzer),
+      ),
+    ).rejects.toMatchObject({ code: "provider_invalid_output" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects mixed-status sections instead of guessing a change type", async () => {
+    const covered = validWireAnalysis().assessments[0];
+    if (covered === undefined) {
+      throw new Error("The fixture must include a covered assessment.");
+    }
+    const mixed = {
+      summary: "Two concepts need different treatment.",
+      assessments: [
+        covered,
+        {
+          id: "retrieval",
+          title: "Retrieval",
+          importance: "core",
+          status: "missing",
+          explanation: "Retrieval is absent from the notes.",
+          evidenceRefs: [
+            {
+              chunkId: "transcript:p0001:c01",
+              relevance: "The transcript explains retrieval.",
+            },
+          ],
+          suggestedPatch: "Add retrieval practice.",
+        },
+      ],
+      enhancedNotes: {
+        title: "Study guide",
+        overview: "Spacing and retrieval support durable learning.",
+        sections: [
+          {
+            id: "section-mixed",
+            heading: "Study methods",
+            learningObjective: "Understand spacing and retrieval.",
+            changeType: "preserved",
+            markdown: "Spacing and retrieval should be practiced deliberately.",
+            assessmentIds: ["spacing", "retrieval"],
+            evidenceRefs: [],
+          },
+        ],
+      },
+      ankiCards: [],
+    };
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json(completionEnvelope(JSON.stringify(mixed))),
+    );
+
+    await expect(
+      analyzeWithChatCompletions({
+        provider: "deepseek",
+        apiKey: "fake-deepseek-key",
+        baseUrl: "https://api.deepseek.example",
+        model: "deepseek-v4-flash",
+        chunks: sourceChunks,
+        outputs: { ankiCards: false },
+        fetchImpl: fetchMock,
+      }),
+    ).rejects.toMatchObject({ code: "provider_invalid_output" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("sends the documented DeepSeek JSON-mode request shape", async () => {

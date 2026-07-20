@@ -1794,6 +1794,8 @@ function PipelineErrorPanel({
 }) {
   const liveFailure = error.kind === "live";
   const liveTimeout = liveFailure && error.liveCode === "provider_timeout";
+  const liveInvalidOutput =
+    liveFailure && error.liveCode === "provider_invalid_output";
   const demoFailure = error.kind === "demo";
   const lectureSourceFailure =
     allowLectureTextRecovery &&
@@ -1814,6 +1816,8 @@ function PipelineErrorPanel({
               {liveFailure
                 ? liveTimeout
                   ? t("error.liveTimeoutRecovery")
+                  : liveInvalidOutput
+                    ? t("error.liveInvalidOutputRecovery")
                   : error.retryable
                   ? t("error.liveRetryRecovery")
                   : t("error.liveConfigRecovery")
@@ -1831,7 +1835,7 @@ function PipelineErrorPanel({
           )}
           {liveFailure && error.retryable && (
             <button type="button" onClick={onRetryLive} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#14213d] px-5 text-sm font-bold text-white hover:bg-[#223252]">
-              <RotateCcw className="size-4" /> {t("error.retry")}
+              <RotateCcw className="size-4" /> {liveInvalidOutput ? t("error.retrySameModel") : t("error.retry")}
             </button>
           )}
           {demoFailure && (

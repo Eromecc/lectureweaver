@@ -112,9 +112,11 @@ Rules:
 - Use missing when an important source concept has no meaningful notes coverage.
 - Use contradiction only when the notes materially conflict with the lecture sources.
 - If no notes chunks are supplied, use only missing assessments and new enhanced-note sections. Do not claim covered, partial, or contradiction status without notes evidence.
-- Covered and partial assessments need at least one slide-or-transcript reference and at least one notes reference.
-- Missing assessments need at least one slide-or-transcript reference.
-- Contradiction assessments need at least one slide-or-transcript reference and at least one notes reference.
+- Apply this status contract exactly:
+  - covered -> suggestedPatch null; enhanced-note changeType preserved; assessment and section evidence each need at least one lecture reference and one notes reference.
+  - partial -> suggestedPatch nonblank Markdown; enhanced-note changeType expanded; assessment and section evidence each need at least one lecture reference and one notes reference.
+  - missing -> suggestedPatch nonblank Markdown; enhanced-note changeType new; assessment and section evidence each need at least one lecture reference; notes evidence is optional.
+  - contradiction -> suggestedPatch nonblank Markdown; enhanced-note changeType corrected; assessment and section evidence each need at least one lecture reference and one notes reference.
 - Use core importance for ideas a student must understand; use supporting for useful detail.
 - Produce at most 10 assessments. Identify every core concept, merge tightly related aspects into one assessment when needed, and never omit a core concept in favor of supporting detail.
 - Keep the summary to one or two sentences. Keep titles short, explanations and evidence relevance specific, and suggested patches concise. Do not repeat source passages when a precise paraphrase is enough.
@@ -123,12 +125,12 @@ Rules:
 - Suggested patches may use plain text, H3-or-lower headings, lists, emphasis, and code, but never H1/H2/Setext headings, raw HTML, Markdown images, autolinks, Markdown links, link references, or bare external URLs.
 - Keep evidence relevance explanations specific and grounded.
 - enhancedNotes must be a complete, standalone study guide, not a list of gaps. Preserve accurate content, expand partial explanations, add missing concepts, and replace contradictions with the source-grounded explanation.
-- Produce at most 8 enhancedNotes sections. Merge related concepts into teachable sections while still linking every assessment.
+- Produce at most 10 enhancedNotes sections. By default, create one section per assessment and put exactly that assessment ID in assessmentIds. Merge sections only when necessary, and only when all linked assessments have the same status. Never mix assessment statuses in one section.
 - Keep the combined enhancedNotes overview and section Markdown at or below 7,000 characters, with each section's Markdown at or below 1,000 characters. Prefer focused explanations over repetition.
 - Order enhancedNotes sections into a teachable progression. Use changeType preserved only for covered assessments, expanded only for partial, new only for missing, and corrected only for contradiction.
-- Every assessment must appear in at least one enhancedNotes section. For every linked assessment, the section must share its primary lecture evidence; preserved, expanded, and corrected sections must also share that assessment's notes evidence.
+- Every assessment must appear in at least one enhancedNotes section. By default, represent it in exactly one section and avoid duplicate representation. A section may cite only evidence already cited by its linked assessments. For every linked assessment, copy at least one of that assessment's lecture evidence references into the section; preserved, expanded, and corrected sections must also copy at least one of that assessment's notes evidence references.
 - Write section markdown as study-ready explanation with mechanisms, relationships, and practical steps. Return section body content only—never H1/H2/Setext headings—and do not mention the auditing process inside the notes. The application owns the document title, numbered section headings, and table of contents.
-- Anki cards must be atomic Basic front/back recall prompts. Do not ask for filenames, locators, or page numbers. Use plain text; for every linked assessment, share its primary lecture evidence.
+- Anki cards must be atomic Basic front/back recall prompts. Every card must contain exactly one assessment ID in assessmentIds and must copy at least one lecture evidence reference from that assessment. Do not ask for filenames, locators, or page numbers. Use plain text.
 - ${outputs.ankiCards ? "Generate at most 12 Anki cards. Cover every core assessment with at least one atomic card, then use any remaining cards only for high-value supporting recall." : "Return an empty ankiCards array because Anki output was not requested."}
 - Return JSON only, matching the required schema exactly.`;
 }
@@ -220,6 +222,12 @@ export function buildAnalysisInput(
     headingPath: chunk.headingPath,
     text: chunk.text,
   }));
+  const allowedLectureChunkIds = chunks
+    .filter((chunk) => chunk.sourceType !== "notes")
+    .map((chunk) => chunk.id);
+  const allowedNotesChunkIds = chunks
+    .filter((chunk) => chunk.sourceType === "notes")
+    .map((chunk) => chunk.id);
 
   return [
     "Required JSON Schema:",
@@ -227,6 +235,12 @@ export function buildAnalysisInput(
     "",
     "Format example only (do not copy its claims; analyze the sources independently):",
     JSON.stringify(buildFormatExample(chunks, outputs, outputLanguage)),
+    "",
+    "Allowed lecture chunk IDs (slides or transcript; copy exact values only):",
+    JSON.stringify(allowedLectureChunkIds),
+    "",
+    "Allowed notes chunk IDs (copy exact values only; an empty array means notes are absent):",
+    JSON.stringify(allowedNotesChunkIds),
     "",
     "Trusted source chunks:",
     JSON.stringify(providerVisibleChunks),

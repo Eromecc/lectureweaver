@@ -114,6 +114,9 @@ describe("static UI localization", () => {
       expect(localized("error.liveTimeoutRecovery")).toContain(
         "DeepSeek V4 Flash",
       );
+      expect(localized("error.liveInvalidOutputRecovery")).toContain(
+        "LectureWeaver",
+      );
       expect(
         localized("pipeline.progressAria", { kind: "PROVIDER" }),
       ).toContain("PROVIDER");

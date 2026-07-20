@@ -13,6 +13,7 @@ import {
   ProviderRequestError,
   providerHttpError,
 } from "./errors";
+import { parseDeepSeekAnalysisText } from "./deepseek-normalize";
 import { buildAnalysisInput, buildAnalysisInstructions } from "./prompt";
 import { getProviderLabel } from "./providers";
 import { modelOutputTokenLimit } from "./generation-limits";
@@ -252,7 +253,10 @@ export async function analyzeWithChatCompletions({
     if (finishError !== undefined) throw finishError;
 
     try {
-      return parseModelAnalysisText(choice?.message.content ?? "");
+      const content = choice?.message.content ?? "";
+      return provider === "deepseek"
+        ? parseDeepSeekAnalysisText(content, { chunks, outputs })
+        : parseModelAnalysisText(content);
     } catch {
       throw invalidProviderOutput(providerLabel);
     }

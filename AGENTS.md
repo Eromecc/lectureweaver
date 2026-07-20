@@ -48,6 +48,7 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 - When notes are absent, provider output may use only `missing` assessments and `new` enhanced-note sections; never invent a placeholder notes chunk or weaken notes-evidence requirements for covered, partial, or contradiction results.
 - Every assessment must be represented in enhanced notes. Map covered → preserved, partial → expanded, missing → new, and contradiction → corrected.
 - Enhanced-note and Anki evidence must come from linked assessment evidence. Require lecture evidence for every artifact, plus notes evidence for preserved, expanded, and corrected sections.
+- For DeepSeek JSON Output only, application code may canonicalize bounded representational drift before strict parsing and deterministically replace redundant section/card evidence with the ordered union of their linked assessments' evidence. Assessment evidence remains the provider-selected trust anchor: never rewrite it, fuzzy-match IDs, accept unknown chunks, or bypass final semantic validation.
 - When Anki output is requested, require at least one card and representation of every core assessment. When disabled, require an empty card array.
 - Validate provider output through the strict wire schema, domain schema, and semantic rules before rendering it.
 - Keep output language strict and explicit: live requests accept only `en`, `zh-CN`, `ja`, or `ko`. **Follow interface** is a UI preference that must be resolved before the request; an omitted request field defaults to `en` for backward compatibility.
@@ -130,7 +131,7 @@ KIMI_REGION          cn (default) or global
 - **OpenAI:** use the Responses API, `store: false`, bounded `max_output_tokens`, and `zodTextFormat`/strict Structured Outputs. Handle explicit refusal and incomplete output, then still run domain and semantic validation. The official `gpt-5.6` alias currently routes to GPT-5.6 Sol.
 - **OpenAI transcription:** use the Transcriptions API for completed recordings, with `diarized_json` and automatic chunking when the diarization model is selected. Validate all returned time/speaker/text segments before source-map construction.
 - **OpenAI speech:** use the Speech API for enhanced-note narration, with bounded text, an allowlisted voice/format, timeout handling, and explicit AI-voice disclosure.
-- **DeepSeek:** use `https://api.deepseek.com/chat/completions`, JSON Output, an explicit JSON instruction/schema example, bounded `max_tokens`, and strict local validation. JSON Output is not schema adherence and can occasionally return empty content. Keep DeepSeek-only fields isolated.
+- **DeepSeek:** use `https://api.deepseek.com/chat/completions`, JSON Output, an explicit JSON instruction/schema example, bounded `max_tokens`, and strict local validation. JSON Output is not schema adherence and can occasionally return empty content. A DeepSeek-only normalizer may repair the documented bounded drift and derive redundant artifact evidence from unchanged assessment references; every result must still pass the provider-neutral wire/domain schemas and trusted-chunk semantic validator. Keep DeepSeek-only fields isolated and never issue an automatic repair request.
 - **Kimi:** use Chat Completions with `json_schema`, `strict: true`, and bounded `max_completion_tokens`. `cn` maps to `https://api.moonshot.cn/v1`; `global` maps to `https://api.moonshot.ai/v1`. Parse final message content, not reasoning content.
 - Treat missing/blank `KIMI_REGION` as `cn`, but fail closed on every other value outside `cn|global`; never silently route a typo to a regional endpoint.
 - Do not assume OpenAI-compatible providers implement OpenAI Responses or identical Chat Completions parameters.
@@ -185,7 +186,7 @@ Add focused regression coverage for behavior changes:
 - score rounding, all statuses, zero-assessment rejection, enhanced-note mappings, Anki option semantics, evidence hydration, and deterministic Markdown/Anki exports;
 - sample ingestion, fingerprint mismatch, provider-unconfigured behavior, and accessible UI interactions;
 - OpenAI structured parse/refusal/length/error mapping;
-- DeepSeek JSON parsing, empty/length/error cases, and Kimi strict-schema request/response handling;
+- DeepSeek JSON parsing, bounded normalization, deterministic artifact-evidence derivation, provider isolation, empty/length/error cases, and Kimi strict-schema request/response handling;
 - provider and function timeout boundaries (285/300 seconds), absence of an application browser deadline, authentication, balance, rate-limit, and invalid-output failures with mocked network responses;
 - speech model/voice and MP3/WAV allowlists, the 4,096-character narration limit, audio response headers, playback/download state, retry, timeout, and invalid/empty audio failures.
 

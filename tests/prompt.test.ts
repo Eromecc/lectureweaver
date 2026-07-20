@@ -46,7 +46,7 @@ describe("analysis prompt", () => {
 
     expect(withAnki).toContain("at most 10 assessments");
     expect(withAnki).toContain("never omit a core concept");
-    expect(withAnki).toContain("at most 8 enhancedNotes sections");
+    expect(withAnki).toContain("at most 10 enhancedNotes sections");
     expect(withAnki).toContain("at or below 7,000 characters");
     expect(withAnki).toContain("at or below 1,000 characters");
     expect(withAnki).toContain("at most 12 Anki cards");

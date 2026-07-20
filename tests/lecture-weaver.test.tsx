@@ -1812,6 +1812,65 @@ describe("LectureWeaver client workflow", () => {
     expect(mockProcessSourceFiles).toHaveBeenCalledTimes(1);
   });
 
+  it("explains invalid provider output and explicitly retries the same model with the preserved source map", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+    mockRequestLiveAnalysis
+      .mockRejectedValueOnce(
+        new LiveAnalysisError(
+          "provider_invalid_output",
+          "DeepSeek returned an analysis that did not pass LectureWeaver's strict schema and evidence checks.",
+          true,
+        ),
+      )
+      .mockResolvedValueOnce(liveResult);
+
+    render(<LectureWeaver providers={configuredProviders} />);
+    await user.upload(
+      screen.getByLabelText("Choose lecture PDF file"),
+      selectedFiles.slides,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose transcript file"),
+      selectedFiles.transcript,
+    );
+    await user.upload(
+      screen.getByLabelText("Choose existing notes file"),
+      selectedFiles.notes,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Extract and analyze with DeepSeek",
+      }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("source files and local source map are still valid");
+    expect(alert).toHaveTextContent("will not retry automatically");
+    expect(alert).toHaveTextContent("new request that may be billed");
+    expect(screen.getByText("Local source map ready")).toBeVisible();
+    expect(screen.getAllByText("sample.pdf").length).toBeGreaterThan(0);
+    expect(mockProcessSourceFiles).toHaveBeenCalledTimes(1);
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(1);
+
+    await user.click(
+      screen.getByRole("button", { name: "Retry same model" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Needs a careful pass" }),
+    ).toBeVisible();
+    expect(mockRequestLiveAnalysis).toHaveBeenLastCalledWith(
+      processed,
+      { provider: "deepseek", model: "deepseek-v4-pro" },
+      { ankiCards: false },
+      { outputLanguage: "en" },
+    );
+    expect(mockRequestLiveAnalysis).toHaveBeenCalledTimes(2);
+    expect(mockProcessSourceFiles).toHaveBeenCalledTimes(1);
+  });
+
   it("shows timeout-specific recovery and retries the preserved map with lighter outputs", async () => {
     const user = userEvent.setup();
     const selectedFiles = sourceFiles();
