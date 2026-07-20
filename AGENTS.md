@@ -45,6 +45,7 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 - Generate structural chunk IDs and trusted locators from parsed structure. Never trust fixture or provider output for source name, locator, heading path, or excerpt.
 - Resolve evidence through a unique chunk map. Reject duplicate IDs, unknown references, invalid source combinations, invalid patch/status combinations, and zero assessments.
 - Covered assessments have no patch. Partial, missing, and contradiction require a nonblank patch.
+- When notes are absent, provider output may use only `missing` assessments and `new` enhanced-note sections; never invent a placeholder notes chunk or weaken notes-evidence requirements for covered, partial, or contradiction results.
 - Every assessment must be represented in enhanced notes. Map covered → preserved, partial → expanded, missing → new, and contradiction → corrected.
 - Enhanced-note and Anki evidence must come from linked assessment evidence. Require lecture evidence for every artifact, plus notes evidence for preserved, expanded, and corrected sections.
 - When Anki output is requested, require at least one card and representation of every core assessment. When disabled, require an empty card array.
@@ -64,7 +65,7 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 ## Extraction and demo conventions
 
 - Parse PDF, TXT, pasted text, and Markdown in the browser. Dynamically load PDF.js client-side and use its bundled local worker.
-- Support a text-based PDF, uploaded UTF-8 TXT, or pasted UTF-8 text as the lecture source; UTF-8 Markdown notes; and either an uploaded/pasted UTF-8 transcript or a supported completed-audio upload. Pasted lecture and transcript text must enter the same validation, normalization, chunking, and locator pipeline as their TXT equivalents. Keep the internal source type `slides` for both page- and paragraph-located lecture sources. Do not add live microphone access, browser recording, or realtime transcription.
+- Require at least one primary source: a text-based PDF, uploaded/pasted UTF-8 lecture text, uploaded/pasted UTF-8 transcript, or a supported completed-audio transcription. Existing UTF-8 Markdown notes are optional comparison material, and multiple primary sources may be combined. Pasted lecture and transcript text must enter the same validation, normalization, chunking, and locator pipeline as their TXT equivalents. Keep the internal source type `slides` for both page- and paragraph-located lecture sources. Do not add live microphone access, browser recording, or realtime transcription.
 - Auto-validate lecture and transcript paste drafts locally after a 400 ms pause with the same production validators used for their uploaded TXT equivalents. Keep a manual validate-now action that runs the same validation immediately. Editing a draft must invalidate its prior materialized `File`; neither automatic nor manual paste validation may trigger a provider request. Notes remain a separate `.md` or `.markdown` upload and are never inferred from either paste field.
 - Preserve page locators, numbered paragraph locators, Markdown heading paths, validated audio time-range locators, and speaker-labeled transcript excerpts.
 - Recognize Markdown ATX and Setext headings only outside fenced code blocks.
@@ -146,7 +147,7 @@ Official references:
 - Keep **Try demo** prominent and no-key.
 - Show deployment-configured, temporary-key-ready, and local-only states without revealing, fingerprinting, or showing a suffix of credentials. Support English, Simplified Chinese, Japanese, and Korean UI catalogs with identical key/placeholder coverage.
 - Provide a live output-language selector for English, Simplified Chinese, Japanese, and Korean. Default it to **Follow interface**, but keep an explicit user choice independent of later interface changes. State that it applies to the next live analysis, does not auto-translate existing results, and does not change the English fixture demo.
-- Keep both **Build local source map** and the live-analysis action visible throughout setup. Readiness text must name the exact missing lecture, preparing/invalid paste, missing transcript, audio-transcription, missing-notes, credential/region, or active-processing step. Explain that the local action sends nothing to a provider and the live action explicitly transmits normalized text; disable each action until its own prerequisites are ready.
+- Keep both **Build local source map** and the live-analysis action visible throughout setup. Readiness requires one ready primary source and must name a preparing/invalid sole source, incomplete audio transcription, credential/region, or active-processing step; optional notes never block either action. Explain that the local action sends nothing to a provider and the live action explicitly transmits normalized text; disable each action until its own prerequisites are ready.
 - Distinguish local extraction, audio upload/transcription, live analysis, speech generation, simulated analysis, and source-map-only states honestly.
 - Treat initial, extracting, transcribing, live loading, generating speech, success, empty, validation failure, textless/unreadable PDF with lecture-text recovery, invalid audio, fingerprint mismatch, provider errors, retry, and reset as first-class states.
 - On narrow screens, prevent horizontal overflow and present evidence as an accessible sheet/dialog.
@@ -204,7 +205,7 @@ The release is complete only when:
 
 - `npm install`, `npm run lint`, `npm test`, and `npm run build` pass with no provider key required;
 - **Try demo** remains a complete, deterministic, no-request judge path under two minutes;
-- PDF/TXT/Markdown files and pasted lecture/transcript text parse locally; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
+- PDF/TXT/Markdown files and pasted lecture/transcript text parse locally; lecture material or transcript alone can form a valid source map while notes remain optional; a supported recording of at most 4,000,000 bytes crosses `/api/transcribe` only after explicit disclosure and becomes validated timestamped transcript chunks without silent truncation;
 - configured OpenAI, DeepSeek, and Kimi adapters follow their provider-specific contracts;
 - live output language resolves to `en`, `zh-CN`, `ja`, or `ko`, applies only to a newly requested live result, and never alters trusted source identifiers, evidence locators, existing results, or the English fixture;
 - all provider output passes Zod and semantic validation before trusted hydration;

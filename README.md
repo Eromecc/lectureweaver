@@ -1,6 +1,6 @@
 # LectureWeaver
 
-LectureWeaver turns a lecture source (PDF, uploaded TXT, or pasted text), an uploaded or pasted transcript (or uploaded lecture recording), and a student's existing notes into an evidence-grounded study pack. It audits coverage, rebuilds the notes into a clearer and more complete learning guide, and can create Anki-ready cards and a downloadable audio study guide. Every generated artifact remains traceable to trusted page, paragraph, or time-range locators.
+LectureWeaver turns one or more lecture sources—a PDF/TXT/paste, transcript, or transcribed recording—plus optional existing Markdown notes into an evidence-grounded study pack. With notes, it audits coverage and contradictions before rebuilding them; without notes, it creates the guide from scratch. It can also create Anki-ready cards and a downloadable audio study guide, with every artifact traceable to trusted page, paragraph, or time-range locators.
 
 The current release includes a deterministic no-key sample demo plus optional live analysis with OpenAI, DeepSeek, or Kimi. Live requests can use either a deployment-managed key or a temporary key entered for the current browser tab; OpenAI can also transcribe an uploaded recording into timestamped transcript chunks and turn validated enhanced notes into playable, downloadable speech. The interface is available in English, Simplified Chinese, Japanese, and Korean, and live study-pack output can use the same four languages. The demo exercises the text-based ingestion, validation, evidence, scoring, enhanced-note, and Anki-export pipeline and never needs an API key.
 
@@ -59,15 +59,15 @@ All environment keys are optional and server-only. Never prefix them with `NEXT_
 
 An invalid nonblank `KIMI_REGION` fails closed: Kimi is shown as unconfigured and no source text or key is sent to either regional endpoint.
 
-Choose a provider/model and supply either its temporary key or deployment configuration before selecting a PDF/TXT lecture source or pasting lecture text, uploading notes as a separate `.md` or `.markdown` file, and supplying an uploaded/pasted transcript or recorded-audio file. A failed live request preserves the parsed source map so the user can retry, switch providers, or use the demo.
+Choose a provider/model and supply either its temporary key or deployment configuration. Then add at least one primary lecture source: a PDF/TXT lecture or pasted lecture text, an uploaded/pasted transcript, or a completed audio transcription. These sources may be combined. Existing notes are an optional separate `.md` or `.markdown` upload; include them for coverage and contradiction auditing, or omit them to build a new guide. A failed live request preserves the parsed source map so the user can retry, switch providers, or use the demo.
 
-Lecture and transcript paste drafts are validated locally after a 400 ms pause through the same production UTF-8 validators used for uploaded TXT files; **Validate … now** runs that validation immediately. Editing a draft invalidates its previously materialized local `File`, so analysis cannot use stale text. Automatic and manual paste validation make no provider request. Once valid, pasted text enters the same normalization, chunking, and locator pipeline as its uploaded TXT equivalent. Notes are not a paste field and still require a separate `.md` or `.markdown` upload.
+Lecture and transcript paste drafts are validated locally after a 400 ms pause through the same production UTF-8 validators used for uploaded TXT files; **Validate … now** runs that validation immediately. Editing a draft invalidates its previously materialized local `File`, so analysis cannot use stale text. Automatic and manual paste validation make no provider request. Once valid, pasted text enters the same normalization, chunking, and locator pipeline as its uploaded TXT equivalent. Optional existing notes are not a paste field and, when used, require a separate `.md` or `.markdown` upload.
 
 Recorded audio is different: after an explicit disclosure and user action, its raw bytes cross `POST /api/transcribe` and are sent to OpenAI for transcription. The returned speaker-aware time segments are validated and converted into the same trusted `transcript` chunk shape used by the existing evidence pipeline. LectureWeaver does not persist or log the audio or transcript. This release accepts completed uploads only; it does not access the microphone or perform realtime recording.
 
 `/api/transcribe` accepts bounded multipart uploads in FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, or WebM form. The browser checks extension, MIME type, and size early; the server repeats those checks and requires the file signature to identify the same format family. OpenAI currently permits transcription uploads up to 25 MB, but this Vercel-oriented build deliberately caps the audio file at **4,000,000 bytes** and the complete multipart body at **4,250,000 bytes** to stay below Vercel's 4.5 MB Function payload limit. Larger recordings are rejected with recovery guidance; they are never silently truncated or automatically split. See the official [OpenAI transcription API reference](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create), [speech-to-text guide](https://developers.openai.com/api/docs/guides/speech-to-text), and [Vercel Function limits](https://vercel.com/docs/functions/limitations#request-body-size).
 
-The readiness text names the exact missing lecture, unvalidated/invalid paste, missing transcript or audio transcription, missing notes, credential, region, or in-progress step. **Build local source map** uses only ready local sources and never calls a provider. **Extract and analyze with …** is the explicit normalized-text transmission action for the selected ready provider; it stays visible but disabled until both sources and provider prerequisites are ready. An existing map can instead use **Analyze current source map with …** without re-extraction.
+The readiness text blocks only when no lecture material or transcript is ready, a selected sole source is still being prepared, or the credential/region/processing prerequisites are incomplete. Existing notes never block analysis. **Build local source map** uses only ready local sources and never calls a provider. **Extract and analyze with …** is the explicit normalized-text transmission action for the selected ready provider; it stays visible but disabled until source and provider prerequisites are ready. An existing map can instead use **Analyze current source map with …** without re-extraction.
 
 Live analysis has three ordered timeout ceilings: the upstream provider request is bounded at 150 seconds, the browser request at 170 seconds, and the Vercel function at 180 seconds. The gaps leave time to cancel upstream work and return a validated error before the outer layer expires. A timeout keeps the local source map available, so the user can retry the same map or choose another ready provider without parsing the files again. LectureWeaver never retries a paid model request automatically because an interrupted request may still have consumed provider resources; every retry is a deliberate user action and may incur a new charge.
 
@@ -76,13 +76,13 @@ ChatGPT and Codex subscriptions do **not** fund analysis, transcription, or spee
 ## Data flow and trust boundary
 
 ```text
-(PDF/TXT/pasted lecture text) + Markdown + (uploaded/pasted transcript or recorded audio)
-          │                         │
-          │                         └── consent ──► /api/transcribe ──► OpenAI
-          │                                                  │
-          └── browser parsing              timestamped transcript chunks
-                             │                            │
-                             └──────── normalized source map
+(PDF/TXT/pasted lecture text) OR (uploaded/pasted transcript or recorded audio)
+          │                                      │
+          │                                      └── consent ──► /api/transcribe ──► OpenAI
+          │                                                                       │
+          └── browser parsing                           timestamped transcript chunks
+                             │                                         │
+               optional Markdown notes ───────── normalized source map
                                               │
                      ┌── Try demo ──► fingerprint gate ──► validated fixture
                      └── Live ──────► /api/analyze ──────► selected provider
@@ -208,7 +208,7 @@ Requests using deployment keys spend the deployment owner's provider credits; te
 
 ## Current limitations
 
-- The lecture source accepts a text-based PDF, uploaded UTF-8 TXT, or directly pasted UTF-8 text. Notes remain UTF-8 Markdown, while an uploaded/pasted UTF-8 transcript or supported completed-audio upload supplies spoken context. OCR and PPTX remain out of scope; an unreadable PDF can be replaced with its exported or copied text.
+- At least one primary source is required: a text-based PDF, uploaded/pasted UTF-8 lecture text, uploaded/pasted UTF-8 transcript, or supported completed-audio transcription. Existing notes are optional UTF-8 Markdown. OCR and PPTX remain out of scope; an unreadable PDF can be replaced with its exported or copied text.
 - Audio uses OpenAI only in this release. Recordings above 4,000,000 bytes, automatic long-recording splitting, live microphone capture, realtime transcription, in-browser recording, custom/cloned voices, and podcast-style multi-speaker generation are out of scope.
 - Results are not saved and disappear on refresh.
 - Anki export targets the Basic note type through a UTF-8 text import; it does not create `.apkg` packages, cloze cards, media, or schedules.

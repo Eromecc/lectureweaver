@@ -181,6 +181,24 @@ describe("POST /api/analyze", () => {
     });
   });
 
+  it("accepts one lecture source but rejects notes-only requests", async () => {
+    const primaryOnly = await POST(
+      jsonRequest({ ...analyzeRequest(), chunks: [chunks[0]!] }),
+    );
+    const notesOnly = await POST(
+      jsonRequest({ ...analyzeRequest(), chunks: [chunks[2]!] }),
+    );
+
+    expect(primaryOnly.status).toBe(503);
+    expect(
+      AnalyzeErrorSchema.parse(await responsePayload(primaryOnly)).error.code,
+    ).toBe("provider_not_configured");
+    expect(notesOnly.status).toBe(400);
+    expect(
+      AnalyzeErrorSchema.parse(await responsePayload(notesOnly)).error.code,
+    ).toBe("invalid_request");
+  });
+
   it("uses a validated temporary credential without persisting or returning it", async () => {
     const credential = "temporary-deepseek-key-123456";
     const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {

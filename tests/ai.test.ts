@@ -29,6 +29,7 @@ import {
   parseModelAnalysisWire,
   type ModelAnalysisWire,
 } from "@/lib/ai/wire";
+import { buildAnalysisInput } from "@/lib/ai/prompt";
 import { ANALYSIS_PROVIDER_TIMEOUT_MS } from "@/lib/ai/timeouts";
 
 import { buildTestAnalysis, toWireAnalysis } from "./analysis-fixtures";
@@ -164,26 +165,48 @@ describe("AI provider catalog and request contract", () => {
     });
   });
 
-  it("requires all three source types and unique chunk ids", () => {
-    const missingNotes = AnalyzeRequestSchema.safeParse({
+  it("accepts any lecture source, keeps notes optional, and rejects unsafe maps", () => {
+    const base = {
       provider: "openai",
       model: "gpt-5.6",
       credentialMode: "deployment",
       outputs: { ankiCards: true },
-      chunks: [sourceChunks[0], sourceChunks[1], { ...sourceChunks[1], id: "t2" }],
+    } as const;
+    const slides = sourceChunks[0]!;
+    const transcript = sourceChunks[1]!;
+    const notes = sourceChunks[2]!;
+
+    for (const chunks of [
+      [slides],
+      [transcript],
+      [slides, notes],
+      [transcript, notes],
+      [slides, transcript],
+    ]) {
+      expect(AnalyzeRequestSchema.safeParse({ ...base, chunks }).success).toBe(
+        true,
+      );
+    }
+
+    const notesOnly = AnalyzeRequestSchema.safeParse({
+      ...base,
+      chunks: [notes],
     });
+    const empty = AnalyzeRequestSchema.safeParse({ ...base, chunks: [] });
     const duplicate = AnalyzeRequestSchema.safeParse({
-      provider: "openai",
-      model: "gpt-5.6",
-      credentialMode: "deployment",
-      outputs: { ankiCards: true },
+      ...base,
       chunks: [...sourceChunks, { ...sourceChunks[0] }],
     });
 
-    expect(missingNotes.success).toBe(false);
+    expect(notesOnly.success).toBe(false);
+    expect(empty.success).toBe(false);
     expect(duplicate.success).toBe(false);
-    if (!missingNotes.success) {
-      expect(missingNotes.error.issues.some((issue) => issue.message.includes("notes"))).toBe(
+    if (!notesOnly.success) {
+      expect(
+        notesOnly.error.issues.some((issue) =>
+          issue.message.includes("slides or transcript"),
+        ),
+      ).toBe(
         true,
       );
     }
@@ -616,6 +639,15 @@ describe("wire parsing and OpenAI injection", () => {
 });
 
 describe("DeepSeek and Kimi Chat Completions adapters", () => {
+  it("uses a missing/new format example when existing notes are absent", () => {
+    const input = buildAnalysisInput([sourceChunks[0]!], { ankiCards: false });
+
+    expect(input).toContain('"status":"missing"');
+    expect(input).toContain('"changeType":"new"');
+    expect(input).not.toContain("use-a-supplied-notes-chunk-id");
+    expect(input).not.toContain('"status":"covered"');
+  });
+
   it("sends the documented DeepSeek JSON-mode request shape", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json(completionEnvelope()),

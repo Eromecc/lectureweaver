@@ -273,16 +273,6 @@ function issueLabel(status: IssueStatus, t: UiTranslator): string {
   return t("review.possibleContradiction");
 }
 
-function hasAllFiles(files: Partial<SourceFiles>): files is SourceFiles {
-  return files.slides !== undefined && files.transcript !== undefined && files.notes !== undefined;
-}
-
-function hasBaseFiles(
-  files: Partial<SourceFiles>,
-): files is Partial<SourceFiles> & Pick<SourceFiles, "slides" | "notes"> {
-  return files.slides !== undefined && files.notes !== undefined;
-}
-
 function defaultTarget(catalog: PublicProviderCatalog): AnalysisTarget | null {
   const provider =
     catalog.providers.find((candidate) => candidate.configured) ??
@@ -3006,54 +2996,48 @@ export function LectureWeaver(
   const validatingPaste = pastedTranscriptState.status === "validating";
   const validatingLecturePaste = pastedLectureState.status === "validating";
   const busy = loading || transcribing || checkingAudio || validatingPaste || validatingLecturePaste;
+  const lectureReady = files.slides !== undefined;
+  const transcriptReady = (() => {
+    if (spokenSourceMode === "audio") {
+      return transcriptionState.status === "ready";
+    }
+    if (spokenSourceMode === "paste") {
+      return (
+        files.transcript !== undefined &&
+        transcriptInputKind === "paste" &&
+        pastedTranscriptState.status === "ready"
+      );
+    }
+    return files.transcript !== undefined && transcriptInputKind === "upload";
+  })();
+  const primarySourceReady = lectureReady || transcriptReady;
   const sourceReadinessKey: UiMessageKey | null = (() => {
+    if (primarySourceReady) return null;
+
     if (lectureSourceMode === "paste") {
-      if (
-        files.slides === undefined ||
-        pastedLectureState.status !== "ready"
-      ) {
-        if (pastedLectureState.status === "error") {
-          return "analysis.fixLecturePaste";
-        }
-        if (pastedLecture.trim().length > 0) {
-          return "analysis.preparingLecturePaste";
-        }
-        return "analysis.missingLecture";
+      if (pastedLectureState.status === "error") {
+        return "analysis.fixLecturePaste";
       }
-    } else if (files.slides === undefined) {
-      return "analysis.missingLecture";
+      if (pastedLecture.trim().length > 0) {
+        return "analysis.preparingLecturePaste";
+      }
     }
 
     if (spokenSourceMode === "audio") {
       if (audioFile === null) return "analysis.missingAudio";
-      if (transcriptionState.status !== "ready") {
-        return "analysis.transcribeAudio";
-      }
+      return "analysis.transcribeAudio";
     } else if (spokenSourceMode === "paste") {
-      if (
-        files.transcript === undefined ||
-        transcriptInputKind !== "paste" ||
-        pastedTranscriptState.status !== "ready"
-      ) {
-        if (pastedTranscriptState.status === "error") {
-          return "analysis.fixTranscriptPaste";
-        }
-        if (pastedTranscript.trim().length > 0) {
-          return "analysis.preparingTranscriptPaste";
-        }
-        return "analysis.missingTranscript";
+      if (pastedTranscriptState.status === "error") {
+        return "analysis.fixTranscriptPaste";
       }
-    } else if (
-      files.transcript === undefined ||
-      transcriptInputKind !== "upload"
-    ) {
-      return "analysis.missingTranscript";
+      if (pastedTranscript.trim().length > 0) {
+        return "analysis.preparingTranscriptPaste";
+      }
     }
 
-    if (files.notes === undefined) return "analysis.missingNotes";
-    return null;
+    return "analysis.missingPrimary";
   })();
-  const ready = sourceReadinessKey === null;
+  const ready = primarySourceReady;
   const sourceReadinessHint = t(
     sourceReadinessKey ?? "analysis.sourcesReady",
   );
@@ -3657,16 +3641,32 @@ export function LectureWeaver(
   };
 
   const runManualPipeline = async (requestLive: boolean) => {
-    if (!hasBaseFiles(files)) return;
-    const sourceFiles = files;
-    const completeTextFiles = hasAllFiles(sourceFiles) ? sourceFiles : null;
+    const sourceFiles: Partial<SourceFiles> = {};
+    if (files.slides !== undefined) sourceFiles.slides = files.slides;
+    if (files.notes !== undefined) sourceFiles.notes = files.notes;
+    if (
+      spokenSourceMode === "transcript" &&
+      transcriptInputKind === "upload" &&
+      files.transcript !== undefined
+    ) {
+      sourceFiles.transcript = files.transcript;
+    }
+    if (
+      spokenSourceMode === "paste" &&
+      transcriptInputKind === "paste" &&
+      pastedTranscriptState.status === "ready" &&
+      files.transcript !== undefined
+    ) {
+      sourceFiles.transcript = files.transcript;
+    }
     const audioTranscription =
       spokenSourceMode === "audio" && transcriptionState.status === "ready"
         ? transcriptionState.transcription
         : null;
     if (
-      (spokenSourceMode !== "audio" && completeTextFiles === null) ||
-      (spokenSourceMode === "audio" && (audioFile === null || audioTranscription === null))
+      sourceFiles.slides === undefined &&
+      sourceFiles.transcript === undefined &&
+      audioTranscription === null
     ) {
       return;
     }
@@ -3688,7 +3688,7 @@ export function LectureWeaver(
     setResultView("notes");
     setLoadingMessage({
       key:
-        spokenSourceMode === "audio"
+        audioTranscription !== null
           ? "pipeline.validatingAudioSources"
           : "pipeline.validatingTextSources",
     });
@@ -3697,27 +3697,28 @@ export function LectureWeaver(
     try {
       setLoadingMessage({
         key:
-          spokenSourceMode === "audio"
+          audioTranscription !== null
             ? "pipeline.extractingAudioSources"
             : "pipeline.extractingTextSources",
       });
       let nextProcessed: ProcessedSources;
-      if (
-        spokenSourceMode === "audio" &&
-        audioFile !== null &&
-        audioTranscription !== null
-      ) {
+      if (audioTranscription !== null) {
         nextProcessed = await processSourceFilesWithTranscriptChunks(
-          { slides: sourceFiles.slides, notes: sourceFiles.notes },
+          {
+            ...(sourceFiles.slides === undefined
+              ? {}
+              : { slides: sourceFiles.slides }),
+            ...(sourceFiles.notes === undefined
+              ? {}
+              : { notes: sourceFiles.notes }),
+          },
           chunkTimestampedTranscript(
             audioTranscription.segments,
             audioTranscription.fileName,
           ),
         );
-      } else if (completeTextFiles !== null) {
-        nextProcessed = await processSourceFiles(completeTextFiles);
       } else {
-        return;
+        nextProcessed = await processSourceFiles(sourceFiles);
       }
       setProcessed(nextProcessed);
 

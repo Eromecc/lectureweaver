@@ -534,7 +534,41 @@ describe("LectureWeaver client workflow", () => {
     );
   });
 
-  it("describes the next missing source until live analysis is ready", async () => {
+  it("enables live analysis after either lecture material or a transcript is ready", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+    mockProcessSourceFiles.mockResolvedValue(processed);
+
+    render(<LectureWeaver providers={configuredProviders} />);
+
+    const liveAnalysisButton = screen.getByRole("button", {
+      name: "Extract and analyze with DeepSeek",
+    });
+    expect(liveAnalysisButton).toBeDisabled();
+    expect(liveAnalysisButton).toHaveAccessibleDescription(
+      /Only one is required/i,
+    );
+
+    await user.upload(
+      screen.getByLabelText("Choose lecture PDF file"),
+      selectedFiles.slides,
+    );
+    expect(liveAnalysisButton).toBeEnabled();
+    expect(liveAnalysisButton).toHaveAccessibleDescription(
+      /DeepSeek is ready/i,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Build local source map" }),
+    );
+    await waitFor(() =>
+      expect(mockProcessSourceFiles).toHaveBeenCalledWith({
+        slides: selectedFiles.slides,
+      }),
+    );
+  });
+
+  it("accepts a transcript as the only required lecture source", async () => {
     const user = userEvent.setup();
     const selectedFiles = sourceFiles();
 
@@ -543,31 +577,36 @@ describe("LectureWeaver client workflow", () => {
     const liveAnalysisButton = screen.getByRole("button", {
       name: "Extract and analyze with DeepSeek",
     });
-    expect(liveAnalysisButton).toBeDisabled();
-    expect(liveAnalysisButton).toHaveAccessibleDescription(/lecture/i);
-
-    await user.upload(
-      screen.getByLabelText("Choose lecture PDF file"),
-      selectedFiles.slides,
-    );
-    expect(liveAnalysisButton).toBeDisabled();
-    expect(liveAnalysisButton).toHaveAccessibleDescription(/transcript/i);
 
     await user.upload(
       screen.getByLabelText("Choose transcript file"),
       selectedFiles.transcript,
     );
-    expect(liveAnalysisButton).toBeDisabled();
-    expect(liveAnalysisButton).toHaveAccessibleDescription(/Markdown notes/i);
+    expect(liveAnalysisButton).toBeEnabled();
+    expect(liveAnalysisButton).toHaveAccessibleDescription(
+      /DeepSeek is ready/i,
+    );
+  });
+
+  it("keeps notes-only input disabled until a lecture source is added", async () => {
+    const user = userEvent.setup();
+    const selectedFiles = sourceFiles();
+
+    render(<LectureWeaver providers={configuredProviders} />);
 
     await user.upload(
       screen.getByLabelText("Choose existing notes file"),
       selectedFiles.notes,
     );
-    expect(liveAnalysisButton).toBeEnabled();
-    expect(liveAnalysisButton).toHaveAccessibleDescription(
-      /DeepSeek is ready/i,
-    );
+
+    expect(
+      screen.getByRole("button", { name: "Build local source map" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", {
+        name: "Extract and analyze with DeepSeek",
+      }),
+    ).toHaveAccessibleDescription(/Only one is required/i);
   });
 
   it("uses the Chinese interface language for the next live analysis by default", async () => {
@@ -1002,7 +1041,7 @@ describe("LectureWeaver client workflow", () => {
     expect(screen.queryByText("pasted-lecture.txt")).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Build local source map" }),
-    ).toBeDisabled();
+    ).toBeEnabled();
     expect(await screen.findByText("pasted-lecture.txt")).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Build local source map" }),
@@ -1275,7 +1314,7 @@ describe("LectureWeaver client workflow", () => {
     expect(screen.getByText("Temporary key active")).toBeVisible();
     expect(liveAnalysisButton).toBeDisabled();
     expect(liveAnalysisButton).toHaveAccessibleDescription(
-      "Add a lecture PDF/TXT or paste lecture text.",
+      "Add lecture material, a transcript, or a completed audio transcription. Only one is required.",
     );
 
     await user.upload(

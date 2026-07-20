@@ -15,7 +15,11 @@ import {
   validatePdfFile,
 } from "./files";
 import { SourceProcessingError } from "./errors";
-import type { ProcessedSources, SourceFiles } from "./files";
+import type {
+  ProcessedSources,
+  SourceFiles,
+  SourceFileSelection,
+} from "./files";
 import { extractPdfPages } from "./pdf.client";
 
 type ProcessedLectureSource = {
@@ -44,33 +48,49 @@ async function processLectureSource(file: File): Promise<ProcessedLectureSource>
   };
 }
 
-export async function processSourceFiles(files: SourceFiles): Promise<ProcessedSources> {
+export async function processSourceFiles(
+  files: SourceFileSelection,
+): Promise<ProcessedSources> {
   const [lecture, transcript, notes] = await Promise.all([
-    processLectureSource(files.slides),
-    readTranscriptFile(files.transcript),
-    readNotesFile(files.notes),
+    files.slides === undefined
+      ? Promise.resolve(null)
+      : processLectureSource(files.slides),
+    files.transcript === undefined
+      ? Promise.resolve(null)
+      : readTranscriptFile(files.transcript),
+    files.notes === undefined
+      ? Promise.resolve(null)
+      : readNotesFile(files.notes),
   ]);
 
   assertExtractedTextLimit([
-    ...lecture.extractedText,
-    transcript,
-    notes,
+    ...(lecture?.extractedText ?? []),
+    ...(transcript === null ? [] : [transcript]),
+    ...(notes === null ? [] : [notes]),
   ]);
 
   return assertProcessedSources([
-    ...lecture.chunks,
-    ...chunkTranscript(transcript, files.transcript.name),
-    ...chunkMarkdownNotes(notes, files.notes.name),
+    ...(lecture?.chunks ?? []),
+    ...(transcript === null || files.transcript === undefined
+      ? []
+      : chunkTranscript(transcript, files.transcript.name)),
+    ...(notes === null || files.notes === undefined
+      ? []
+      : chunkMarkdownNotes(notes, files.notes.name)),
   ]);
 }
 
 export async function processSourceFilesWithTranscriptChunks(
-  files: Pick<SourceFiles, "slides" | "notes">,
+  files: Partial<Pick<SourceFiles, "slides" | "notes">>,
   transcriptChunks: readonly SourceChunk[],
 ): Promise<ProcessedSources> {
   const [lecture, notes] = await Promise.all([
-    processLectureSource(files.slides),
-    readNotesFile(files.notes),
+    files.slides === undefined
+      ? Promise.resolve(null)
+      : processLectureSource(files.slides),
+    files.notes === undefined
+      ? Promise.resolve(null)
+      : readNotesFile(files.notes),
   ]);
 
   if (
@@ -85,14 +105,16 @@ export async function processSourceFilesWithTranscriptChunks(
   }
 
   assertExtractedTextLimit([
-    ...lecture.extractedText,
+    ...(lecture?.extractedText ?? []),
     ...transcriptChunks.map((chunk) => chunk.text),
-    notes,
+    ...(notes === null ? [] : [notes]),
   ]);
 
   return assertProcessedSources([
-    ...lecture.chunks,
+    ...(lecture?.chunks ?? []),
     ...transcriptChunks,
-    ...chunkMarkdownNotes(notes, files.notes.name),
+    ...(notes === null || files.notes === undefined
+      ? []
+      : chunkMarkdownNotes(notes, files.notes.name)),
   ]);
 }

@@ -103,7 +103,7 @@ export const AnalyzeRequestSchema = z
     kimiRegion: KimiRegionSchema.optional(),
     outputLanguage: OutputLanguageSchema.default("en"),
     outputs: AnalysisOutputOptionsSchema,
-    chunks: SourceChunkListSchema.min(3).max(MAX_SOURCE_CHUNKS),
+    chunks: SourceChunkListSchema.min(1).max(MAX_SOURCE_CHUNKS),
   })
   .strict()
   .superRefine((request, context) => {
@@ -201,14 +201,12 @@ export const AnalyzeRequestSchema = z
       }
     });
 
-    for (const sourceType of SourceTypeSchema.options) {
-      if (!sourceTypes.has(sourceType)) {
-        context.addIssue({
-          code: "custom",
-          message: `At least one ${sourceType} chunk is required.`,
-          path: ["chunks"],
-        });
-      }
+    if (!sourceTypes.has("slides") && !sourceTypes.has("transcript")) {
+      context.addIssue({
+        code: "custom",
+        message: "At least one slides or transcript chunk is required.",
+        path: ["chunks"],
+      });
     }
 
     if (totalCharacters > MAX_EXTRACTED_CHARACTERS) {

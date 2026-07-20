@@ -415,7 +415,7 @@ describe("LectureWeaver audio workflow", () => {
     expect(screen.queryByText("pasted-transcript.txt")).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Build local source map" }),
-    ).toBeDisabled();
+    ).toBeEnabled();
 
     expect(await screen.findByText("pasted-transcript.txt")).toBeVisible();
     expect(
@@ -433,7 +433,7 @@ describe("LectureWeaver audio workflow", () => {
     await expect(passedTranscript.text()).resolves.toBe(updatedText);
   });
 
-  it("explains the missing transcript and audio preparation steps precisely", async () => {
+  it("explains the missing primary source and audio preparation steps precisely", async () => {
     const user = userEvent.setup();
     const audioFile = new File(
       [new Uint8Array([0x49, 0x44, 0x33, 0x04])],
@@ -442,10 +442,6 @@ describe("LectureWeaver audio workflow", () => {
     );
 
     render(<LectureWeaver providers={configuredAudioProvider} />);
-    await user.upload(
-      screen.getByLabelText("Choose lecture PDF file"),
-      sourceFiles.slides,
-    );
     await user.upload(
       screen.getByLabelText("Choose existing notes file"),
       sourceFiles.notes,
@@ -456,7 +452,7 @@ describe("LectureWeaver audio workflow", () => {
     });
     expect(transcriptAction).toBeDisabled();
     expect(transcriptAction).toHaveAccessibleDescription(
-      "Add a transcript TXT, paste transcript text, or use lecture audio.",
+      "Add lecture material, a transcript, or a completed audio transcription. Only one is required.",
     );
 
     await user.click(screen.getByRole("button", { name: "Lecture audio" }));

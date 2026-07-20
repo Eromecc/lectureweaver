@@ -50,7 +50,7 @@ const ENGLISH_UI_MESSAGES = {
   "upload.eyebrow": "Your materials",
   "upload.title": "Build a trusted source map.",
   "upload.description":
-    "Upload a lecture PDF or TXT—or paste lecture text—then add Markdown notes and a transcript file, pasted transcript, or recording. Text is parsed in this tab; audio is sent only after you explicitly request transcription.",
+    "Add at least one lecture source: a lecture PDF/TXT or pasted text, a transcript, or a transcribed recording. Existing Markdown notes are optional—include them for coverage and contradiction checks, or omit them to build from scratch.",
   "upload.privacy":
     "PDF, TXT, Markdown, and pasted text stay local · audio is sent to OpenAI only for explicit transcription · normalized chunks are sent only after you explicitly start live analysis · no silent truncation",
   "upload.buildLocal": "Build local source map",
@@ -64,7 +64,7 @@ const ENGLISH_UI_MESSAGES = {
   "source.transcriptTitle": "Transcript",
   "source.transcriptDetail": "UTF-8 plain text",
   "source.transcriptLimit": "Up to 1 MiB",
-  "source.notesEyebrow": "03 / Your baseline",
+  "source.notesEyebrow": "03 / Optional baseline",
   "source.notesTitle": "Existing notes",
   "source.notesShortName": "Notes",
   "source.notesDetail": "Markdown",
@@ -196,7 +196,10 @@ const ENGLISH_UI_MESSAGES = {
   "analysis.kimiRegion": "Choose the Kimi API region before analysis.",
   "analysis.enterKey":
     "Enter a valid temporary {provider} key above, or configure its deployment key.",
-  "analysis.sourcesReady": "Lecture, transcript, and notes are ready.",
+  "analysis.sourcesReady":
+    "At least one lecture source is ready. Existing notes are optional.",
+  "analysis.missingPrimary":
+    "Add lecture material, a transcript, or a completed audio transcription. Only one is required.",
   "analysis.missingLecture":
     "Add a lecture PDF/TXT or paste lecture text.",
   "analysis.preparingLecturePaste":
@@ -253,8 +256,8 @@ const ENGLISH_UI_MESSAGES = {
   "pipeline.liveWaitHint":
     "Large source maps can take up to about 3 minutes. Keep this tab open while the selected provider finishes.",
   "pipeline.validatingAudioSources":
-    "Validating the lecture source, notes, and timestamped transcript…",
-  "pipeline.validatingTextSources": "Validating the three local sources…",
+    "Validating the selected sources and timestamped transcript…",
+  "pipeline.validatingTextSources": "Validating the selected local sources…",
   "pipeline.extractingAudioSources":
     "Extracting lecture structure and hydrating validated transcription timestamps…",
   "pipeline.extractingTextSources":
@@ -481,7 +484,7 @@ const SIMPLIFIED_CHINESE_UI_MESSAGES = {
   "upload.eyebrow": "你的材料",
   "upload.title": "建立可信来源地图。",
   "upload.description":
-    "上传 PDF 或 TXT 讲义，也可以直接粘贴讲义文本；然后添加 Markdown 笔记，以及 TXT 讲稿、粘贴讲稿或课堂录音。文本会在当前标签页中解析；只有明确要求转写时才会发送音频。",
+    "讲义 PDF/TXT 或粘贴文本、讲稿、已完成转录的录音，至少添加一种即可。现有 Markdown 笔记为可选项：添加后可检查遗漏与矛盾，不添加则从零整理完整学习资料。",
   "upload.privacy":
     "PDF、TXT、Markdown 和粘贴文本保留在本地 · 仅在明确转写时向 OpenAI 发送音频 · 仅在你明确启动实时分析后发送规范化文本块 · 绝不静默截断",
   "upload.buildLocal": "建立本地来源地图",
@@ -495,7 +498,7 @@ const SIMPLIFIED_CHINESE_UI_MESSAGES = {
   "source.transcriptTitle": "讲稿",
   "source.transcriptDetail": "UTF-8 纯文本",
   "source.transcriptLimit": "最大 1 MiB",
-  "source.notesEyebrow": "03 / 你的基础笔记",
+  "source.notesEyebrow": "03 / 可选基础笔记",
   "source.notesTitle": "现有笔记",
   "source.notesShortName": "笔记",
   "source.notesDetail": "Markdown",
@@ -626,7 +629,9 @@ const SIMPLIFIED_CHINESE_UI_MESSAGES = {
   "analysis.kimiRegion": "请先选择 Kimi API 区域。",
   "analysis.enterKey":
     "请在上方输入有效的临时 {provider} 密钥，或为该服务商配置部署密钥。",
-  "analysis.sourcesReady": "讲义、讲稿和笔记均已就绪。",
+  "analysis.sourcesReady": "至少一种课堂来源已就绪；现有笔记为可选项。",
+  "analysis.missingPrimary":
+    "请添加讲义、讲稿或已完成的音频转录，三者任选其一即可。",
   "analysis.missingLecture": "添加讲义 PDF/TXT，或粘贴讲义文本。",
   "analysis.preparingLecturePaste":
     "请等待粘贴的讲义文本完成验证，或立即验证。",
@@ -675,8 +680,8 @@ const SIMPLIFIED_CHINESE_UI_MESSAGES = {
   "pipeline.analyzing": "正在使用 {provider} · {model} 分析规范化文本块…",
   "pipeline.liveWaitHint":
     "较大的来源地图可能需要约 3 分钟。请保持当前标签页打开，等待所选服务商完成。",
-  "pipeline.validatingAudioSources": "正在验证讲义来源、笔记和带时间戳的讲稿…",
-  "pipeline.validatingTextSources": "正在验证三个本地来源…",
+  "pipeline.validatingAudioSources": "正在验证已选择的来源和带时间戳的讲稿…",
+  "pipeline.validatingTextSources": "正在验证已选择的本地来源…",
   "pipeline.extractingAudioSources": "正在提取讲义结构并关联已验证的转写时间戳…",
   "pipeline.extractingTextSources": "正在提取讲义和段落结构…",
   "pipeline.finalizingSourceMap": "正在完成本地来源地图…",
@@ -882,7 +887,7 @@ const JAPANESE_UI_MESSAGES = {
   "upload.eyebrow": "教材",
   "upload.title": "信頼できるソースマップを作成。",
   "upload.description":
-    "講義 PDF または TXT をアップロードするか講義テキストを貼り付け、Markdown ノートと、TXT 文字起こし、貼り付けた文字起こし、または講義録音を追加してください。テキストはこのタブ内で解析され、音声は明示的に文字起こしを実行した場合にのみ送信されます。",
+    "講義 PDF/TXT または貼り付けテキスト、文字起こし、文字起こし済み録音のうち、少なくとも 1 つを追加してください。既存の Markdown ノートは任意です。追加すれば網羅性と矛盾を確認でき、省略すればゼロから学習資料を作成します。",
   "upload.privacy":
     "PDF、TXT、Markdown、貼り付けテキストはローカルに保持 · 音声は明示的な文字起こし時のみ OpenAI へ送信 · 正規化済みチャンクはライブ分析を明示的に開始した後のみ送信 · 無断の切り捨てなし",
   "upload.buildLocal": "ローカルソースマップを作成",
@@ -896,7 +901,7 @@ const JAPANESE_UI_MESSAGES = {
   "source.transcriptTitle": "文字起こし",
   "source.transcriptDetail": "UTF-8 プレーンテキスト",
   "source.transcriptLimit": "最大 1 MiB",
-  "source.notesEyebrow": "03 / 元のノート",
+  "source.notesEyebrow": "03 / 任意の元ノート",
   "source.notesTitle": "既存ノート",
   "source.notesShortName": "ノート",
   "source.notesDetail": "Markdown",
@@ -1028,7 +1033,9 @@ const JAPANESE_UI_MESSAGES = {
   "analysis.enterKey":
     "上で有効な一時 {provider} キーを入力するか、デプロイキーを設定してください。",
   "analysis.sourcesReady":
-    "講義資料、文字起こし、ノートの準備ができました。",
+    "少なくとも 1 つの講義資料が準備できました。既存ノートは任意です。",
+  "analysis.missingPrimary":
+    "講義資料、文字起こし、または完了済みの音声文字起こしを追加してください。必要なのは 1 つだけです。",
   "analysis.missingLecture":
     "講義 PDF/TXT を追加するか、講義テキストを貼り付けてください。",
   "analysis.preparingLecturePaste":
@@ -1083,8 +1090,8 @@ const JAPANESE_UI_MESSAGES = {
   "pipeline.analyzing": "{provider} · {model} で正規化済みチャンクを分析中…",
   "pipeline.liveWaitHint":
     "大きなソースマップでは約 3 分かかる場合があります。選択したプロバイダーが完了するまで、このタブを開いたままにしてください。",
-  "pipeline.validatingAudioSources": "講義資料、ノート、タイムスタンプ付き文字起こしを検証中…",
-  "pipeline.validatingTextSources": "3 つのローカル資料を検証中…",
+  "pipeline.validatingAudioSources": "選択した資料とタイムスタンプ付き文字起こしを検証中…",
+  "pipeline.validatingTextSources": "選択したローカル資料を検証中…",
   "pipeline.extractingAudioSources": "講義構造を抽出し、検証済み文字起こしのタイムスタンプを関連付け中…",
   "pipeline.extractingTextSources": "講義と段落構造を抽出中…",
   "pipeline.finalizingSourceMap": "ローカルソースマップを仕上げています…",
@@ -1290,7 +1297,7 @@ const KOREAN_UI_MESSAGES = {
   "upload.eyebrow": "학습 자료",
   "upload.title": "신뢰할 수 있는 소스 맵을 만드세요.",
   "upload.description":
-    "강의 PDF 또는 TXT를 업로드하거나 강의 텍스트를 붙여넣은 다음, Markdown 노트와 TXT 전사문, 붙여넣은 전사문 또는 강의 녹음을 추가하세요. 텍스트는 이 탭에서 분석되며, 오디오는 사용자가 명시적으로 전사를 요청할 때만 전송됩니다.",
+    "강의 PDF/TXT 또는 붙여넣은 텍스트, 전사문, 전사가 완료된 녹음 중 하나 이상을 추가하세요. 기존 Markdown 노트는 선택 사항입니다. 추가하면 누락과 모순을 점검하고, 생략하면 처음부터 학습 자료를 만듭니다.",
   "upload.privacy":
     "PDF, TXT, Markdown과 붙여넣은 텍스트는 로컬에 유지 · 오디오는 명시적 전사 시에만 OpenAI로 전송 · 정규화된 청크는 라이브 분석을 명시적으로 시작한 뒤에만 전송 · 자동 잘라내기 없음",
   "upload.buildLocal": "로컬 소스 맵 만들기",
@@ -1304,7 +1311,7 @@ const KOREAN_UI_MESSAGES = {
   "source.transcriptTitle": "전사문",
   "source.transcriptDetail": "UTF-8 일반 텍스트",
   "source.transcriptLimit": "최대 1 MiB",
-  "source.notesEyebrow": "03 / 기존 학습 기반",
+  "source.notesEyebrow": "03 / 선택적 학습 기반",
   "source.notesTitle": "기존 노트",
   "source.notesShortName": "노트",
   "source.notesDetail": "Markdown",
@@ -1435,7 +1442,10 @@ const KOREAN_UI_MESSAGES = {
   "analysis.kimiRegion": "분석 전에 Kimi API 리전을 선택하세요.",
   "analysis.enterKey":
     "위에 유효한 임시 {provider} 키를 입력하거나 배포 키를 설정하세요.",
-  "analysis.sourcesReady": "강의 자료, 전사문, 노트가 준비되었습니다.",
+  "analysis.sourcesReady":
+    "강의 소스가 하나 이상 준비되었습니다. 기존 노트는 선택 사항입니다.",
+  "analysis.missingPrimary":
+    "강의 자료, 전사문 또는 완료된 오디오 전사 중 하나만 추가하면 됩니다.",
   "analysis.missingLecture":
     "강의 PDF/TXT를 추가하거나 강의 텍스트를 붙여넣으세요.",
   "analysis.preparingLecturePaste":
@@ -1488,8 +1498,8 @@ const KOREAN_UI_MESSAGES = {
   "pipeline.analyzing": "{provider} · {model}(으)로 정규화 청크 분석 중…",
   "pipeline.liveWaitHint":
     "큰 소스 맵은 약 3분까지 걸릴 수 있습니다. 선택한 제공업체가 완료할 때까지 이 탭을 열어 두세요.",
-  "pipeline.validatingAudioSources": "강의 자료, 노트, 타임스탬프 전사문 검증 중…",
-  "pipeline.validatingTextSources": "로컬 자료 3개 검증 중…",
+  "pipeline.validatingAudioSources": "선택한 자료와 타임스탬프 전사문 검증 중…",
+  "pipeline.validatingTextSources": "선택한 로컬 자료 검증 중…",
   "pipeline.extractingAudioSources": "강의 구조를 추출하고 검증된 전사 타임스탬프 연결 중…",
   "pipeline.extractingTextSources": "강의와 단락 구조 추출 중…",
   "pipeline.finalizingSourceMap": "로컬 소스 맵 마무리 중…",

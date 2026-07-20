@@ -397,7 +397,7 @@ describe("lecture-text source processing", () => {
     type: "text/markdown",
   });
 
-  it("processes a TXT lecture through the standard three-file pipeline", async () => {
+  it("processes a TXT lecture through the multi-source pipeline", async () => {
     const processed = await processSourceFiles({
       slides: lecture,
       transcript: new File(["The lecturer explains spacing."], "transcript.txt", {
@@ -414,6 +414,27 @@ describe("lecture-text source processing", () => {
       locator: "Paragraphs 1-2",
       text: "Retrieval practice checks memory. Spacing strengthens retention.",
     });
+  });
+
+  it("accepts lecture-only and transcript-only source maps", async () => {
+    const lectureOnly = await processSourceFiles({ slides: lecture });
+    const transcriptOnly = await processSourceFiles({
+      transcript: new File(["The lecturer explains spacing."], "transcript.txt", {
+        type: "text/plain",
+      }),
+    });
+
+    expect(lectureOnly.counts).toEqual({ slides: 1, transcript: 0, notes: 0 });
+    expect(transcriptOnly.counts).toEqual({ slides: 0, transcript: 1, notes: 0 });
+  });
+
+  it("keeps Markdown notes optional while rejecting notes-only input", async () => {
+    const withNotes = await processSourceFiles({ slides: lecture, notes });
+
+    expect(withNotes.counts).toEqual({ slides: 1, transcript: 0, notes: 1 });
+    await expect(processSourceFiles({ notes })).rejects.toThrowError(
+      /lecture material or a transcript/,
+    );
   });
 
   it("processes a TXT lecture with trusted timestamped transcript chunks", async () => {
@@ -433,6 +454,24 @@ describe("lecture-text source processing", () => {
     expect(processed.counts).toEqual({ slides: 1, transcript: 1, notes: 1 });
     expect(processed.chunks).toContainEqual(transcriptChunk);
     expect(processed.chunks[0]?.id).toBe("slides:p0001-p0002:c01");
+  });
+
+  it("accepts a timestamped audio transcript as the only lecture source", async () => {
+    const transcriptChunk: SourceChunk = {
+      id: "transcript:t000000000-t000005000:c01",
+      sourceType: "transcript",
+      sourceName: "recording.mp3",
+      locator: "00:00–00:05",
+      text: "Speaker A: Retrieval practice checks memory.",
+    };
+
+    const processed = await processSourceFilesWithTranscriptChunks(
+      {},
+      [transcriptChunk],
+    );
+
+    expect(processed.counts).toEqual({ slides: 0, transcript: 1, notes: 0 });
+    expect(processed.chunks).toEqual([transcriptChunk]);
   });
 });
 
@@ -473,12 +512,14 @@ describe("global extraction limits", () => {
     }
   });
 
-  it("rejects an empty source map for any required source", () => {
+  it("rejects a source map without lecture material or transcript text", () => {
     expect(() =>
       assertProcessedSources([
-        sourceChunk("slides", 1),
-        sourceChunk("transcript", 1),
+        sourceChunk("notes", 1),
       ]),
-    ).toThrowError(/No usable text was found in the notes file/);
+    ).toThrowError(/lecture material or a transcript/);
+    expect(() => assertProcessedSources([])).toThrowError(
+      /lecture material or a transcript/,
+    );
   });
 });

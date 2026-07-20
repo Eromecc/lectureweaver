@@ -18,6 +18,8 @@ export type SourceFiles = {
   notes: File;
 };
 
+export type SourceFileSelection = Partial<SourceFiles>;
+
 export type ProcessedSources = {
   chunks: SourceChunk[];
   totalCharacters: number;
@@ -156,16 +158,15 @@ export function assertProcessedSources(chunks: SourceChunk[]): ProcessedSources 
     characterCounts[chunk.sourceType] += normalizeSourceText(chunk.text).length;
   }
 
-  for (const sourceType of ["slides", "transcript", "notes"] as const) {
-    if (counts[sourceType] === 0 || characterCounts[sourceType] === 0) {
-      throw new SourceProcessingError(
-        "empty_source",
-        sourceType,
-        sourceType === "slides"
-          ? "No usable text was found in the lecture source. Choose a text-based PDF or nonempty UTF-8 text."
-          : `No usable text was found in the ${sourceType} file.`,
-      );
-    }
+  if (
+    counts.slides + counts.transcript === 0 ||
+    characterCounts.slides + characterCounts.transcript === 0
+  ) {
+    throw new SourceProcessingError(
+      "empty_source",
+      "slides",
+      "Add usable lecture material or a transcript before building the source map.",
+    );
   }
 
   const totalCharacters = chunks.reduce((total, chunk) => total + chunk.text.length, 0);

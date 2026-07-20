@@ -147,6 +147,30 @@ describe("evidence validation and hydration", () => {
     },
   );
 
+  it("builds missing/new study artifacts safely when no notes were supplied", () => {
+    const primaryOnlyChunks = [sourceChunks[1]!];
+    const hydrated = hydrateAnalysis(
+      buildTestAnalysis(
+        [
+          makeAssessment(
+            "retrieval",
+            "missing",
+            ["transcript:p0001-p0002:c01"],
+          ),
+        ],
+        { includeAnki: true },
+      ),
+      primaryOnlyChunks,
+    );
+
+    expect(hydrated.assessments[0]?.status).toBe("missing");
+    expect(hydrated.enhancedNotes.sections[0]?.changeType).toBe("new");
+    expect(hydrated.enhancedNotes.sections[0]?.evidence[0]?.chunk.sourceType).toBe(
+      "transcript",
+    );
+    expect(hydrated.ankiCards).toHaveLength(1);
+  });
+
   it("orders Markdown by status then importance and emits trusted locators", () => {
     const assessments = [
         makeAssessment(

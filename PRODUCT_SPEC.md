@@ -12,7 +12,7 @@ It is not a general summarizer or chatbot. Its core promise is completeness-firs
 
 ## Audience and milestone outcome
 
-The primary user has a lecture source in PDF or text form, Markdown notes, and either transcript text or a completed lecture recording, but cannot quickly determine whether the notes preserve important teaching content. Manual comparison and transcription are slow, while ungrounded generation can hide omissions or fabricate support.
+The primary user has at least one trusted lecture source—PDF/text material, transcript text, or a completed lecture recording—and may also have existing Markdown notes. With notes, they need to verify whether important teaching content was preserved; without notes, they need a grounded study guide built from scratch.
 
 The release serves two entry points:
 
@@ -48,7 +48,7 @@ This flow never calls analysis, transcription, or speech services, even when pro
 
 ### Live analysis of user-selected material
 
-1. The user supplies one lecture source as a text-based PDF, uploaded UTF-8 TXT, or directly pasted text; one separately uploaded UTF-8 `.md` or `.markdown` notes file; and either an uploaded UTF-8 TXT transcript or directly pasted transcript text.
+1. The user supplies at least one primary source: a text-based PDF, uploaded/pasted UTF-8 lecture text, uploaded/pasted UTF-8 transcript, or completed audio transcription. Multiple primary sources may be combined. A separately uploaded UTF-8 `.md` or `.markdown` notes file is optional.
 2. Lecture and transcript paste drafts are validated locally through the same production validators as uploaded TXT after a 400 ms pause; a visible validate-now action runs the same check immediately. Editing a draft invalidates its previously materialized local `File`. Neither automatic nor manual paste validation triggers a provider request. Valid pasted text then follows the same normalization, chunking, and locator contract as its uploaded TXT equivalent. A recorded-audio upload may supply the transcript through the separate flow below.
 3. The user chooses a provider/model, an output language, and whether to create Anki cards. Enhanced notes are always produced. Output language is strictly one of `en`, `zh-CN`, `ja`, or `ko`; **Follow interface** resolves to the current interface locale for the next request.
 4. If the selected provider has either a deployment credential or a valid temporary current-tab credential, the browser posts only the normalized chunks, selected target, resolved nonsecret output language, and nonsecret credential mode to `/api/analyze`.
@@ -77,7 +77,7 @@ This flow never calls analysis, transcription, or speech services, even when pro
 ### Unconfigured or failed live analysis
 
 - If the selected provider has neither a deployment key nor a valid temporary key, no chunks are sent; valid input displays a local source map and offers **Try demo**.
-- The readiness UI identifies the exact missing lecture, preparing/invalid paste, missing transcript, audio transcription, missing notes, credential, model/provider selection, Kimi region, or active processing step. It explains that **Build local source map** is local-only and that **Extract and analyze with …** is the explicit normalized-text transmission action; the live action remains visible but disabled until all prerequisites are ready.
+- The readiness UI requires at least one ready lecture-material or transcript source, while notes remain optional. It identifies a preparing/invalid sole source, incomplete audio transcription, credential, model/provider selection, Kimi region, or active processing step. It explains that **Build local source map** is local-only and that **Extract and analyze with …** is the explicit normalized-text transmission action.
 - If a provider rejects, times out, rate-limits, truncates, or returns invalid output, the source map remains available and the user can manually retry or choose another ready provider.
 - Live analysis uses nested ceilings of 150 seconds for the upstream provider request, 170 seconds for the browser request, and 180 seconds for the application function. The ordering reserves cleanup and error-response headroom instead of allowing the hosting platform to terminate the outer request first.
 - LectureWeaver does not automatically retry timed-out live analysis. The provider may already have performed billable work even when the application did not receive a valid result, so only an explicit user action starts another paid request.
@@ -87,7 +87,7 @@ This flow never calls analysis, transcription, or speech services, even when pro
 
 ### Input, extraction, and limits
 
-- Accept a PDF, uploaded TXT, or directly pasted text for the lecture source; a separate Markdown (`.md` or `.markdown`) upload for notes; and uploaded TXT, directly pasted text, or a supported completed-audio upload for the transcript source.
+- Accept at least one of: a PDF/uploaded TXT/pasted lecture source, or an uploaded TXT/pasted/completed-audio transcript source. Accept a separate Markdown (`.md` or `.markdown`) notes upload as optional comparison material.
 - Validate extension, MIME compatibility, file size, PDF/audio signatures where applicable, and UTF-8/binary safety.
 - Allow recorded-audio extensions/formats FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, and WebM only. The client validates extension, MIME, nonempty content, and size; the server repeats those checks and requires the detected file signature, extension, and MIME type to identify the same format family.
 - Enforce 10 MiB PDF, 1 MiB per text file, 4,000,000 bytes per recorded-audio upload, 120,000 normalized characters total, 100 chunks total, 1,800 characters per chunk, and 4,096 narration characters per speech request.
@@ -151,6 +151,8 @@ IDs must be unique. Covered assessments have no patch. Partial, missing, and con
 - covered and partial: at least one slides-or-transcript reference and one notes reference;
 - missing: at least one slides-or-transcript reference;
 - contradiction: at least one slides-or-transcript reference and one notes reference.
+
+When no notes chunks are supplied, the result is a from-scratch build: assessments must use `missing`, enhanced-note sections must use `new`, and no notes evidence may be invented. Covered, partial, and contradiction statuses remain available only when actual notes evidence exists.
 
 All chunk references must exist. Hydrated evidence always obtains its source name, locator, heading path, and excerpt from the current chunk map. Strict structured output does not replace application-side domain and semantic validation.
 
