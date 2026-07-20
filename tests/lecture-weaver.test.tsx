@@ -397,6 +397,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   Object.defineProperty(window, "requestAnimationFrame", {
     configurable: true,
+    writable: true,
     value: (callback: FrameRequestCallback) => {
       callback(0);
       return 1;
@@ -421,6 +422,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -762,6 +764,11 @@ describe("LectureWeaver client workflow", () => {
     expect(
       screen.getByText("Extracting lecture and paragraph structure…").closest("section"),
     ).toHaveAttribute("aria-busy", "true");
+    const demoProgress = screen.getByRole("progressbar", {
+      name: "No-key demo progress",
+    });
+    expect(demoProgress).toHaveAttribute("aria-valuetext", "Elapsed 00:00");
+    expect(demoProgress).not.toHaveAttribute("aria-valuenow");
     expect(
       screen.getByRole("button", { name: "Build local source map" }),
     ).toBeDisabled();
@@ -1575,6 +1582,21 @@ describe("LectureWeaver client workflow", () => {
 
   it("sets expectations while a live provider is processing a large source map", async () => {
     const user = userEvent.setup();
+    let now = 1_000;
+    let latestIntervalTick: (() => void) | null = null;
+    let latestIntervalId = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.spyOn(window, "setInterval").mockImplementation((handler) => {
+      if (typeof handler !== "function") {
+        throw new TypeError("Expected the progress timer to use a function.");
+      }
+      latestIntervalTick = () => handler();
+      latestIntervalId += 1;
+      return latestIntervalId;
+    });
+    const clearIntervalSpy = vi
+      .spyOn(window, "clearInterval")
+      .mockImplementation(() => undefined);
     const selectedFiles = sourceFiles();
     const pendingAnalysis = deferred<AnalysisResult>();
     mockProcessSourceFiles.mockResolvedValue(processed);
@@ -1599,27 +1621,53 @@ describe("LectureWeaver client workflow", () => {
       }),
     );
 
-    const waitHint = await screen.findByText(
-      "Large source maps can take up to about 3 minutes. Keep this tab open while the selected provider finishes.",
+    const waitHint = screen.getByText(
+      "There is no exact ETA. Keep this tab open while the browser waits; the hosting platform or selected provider may still stop stalled work.",
     );
     expect(waitHint.closest("section")).toHaveAttribute("aria-busy", "true");
+    const progress = screen.getByRole("progressbar", {
+      name: "Live model analysis progress",
+    });
+    expect(progress).toHaveAttribute("aria-valuetext", "Elapsed 00:00");
+    expect(progress).not.toHaveAttribute("aria-valuenow");
+    expect(progress).not.toHaveAttribute("aria-valuemin");
+    expect(progress).not.toHaveAttribute("aria-valuemax");
+    expect(screen.getByText("Elapsed 00:00")).toBeVisible();
+    const liveIntervalId = latestIntervalId;
+
+    now += 65_000;
+    act(() => {
+      latestIntervalTick?.();
+    });
+    expect(progress).toHaveAttribute("aria-valuetext", "Elapsed 01:05");
+    expect(screen.getByText("Elapsed 01:05")).toBeVisible();
 
     await user.click(
       screen.getByRole("button", { name: "Language: 简体中文" }),
     );
     expect(
       screen.getByText(
-        "较大的来源地图可能需要约 3 分钟。请保持当前标签页打开，等待所选服务商完成。",
+        "没有准确的完成时间。浏览器等待期间请保持当前标签页打开；托管平台或所选服务商仍可能终止长时间无响应的任务。",
       ),
     ).toBeVisible();
+    const translatedProgress = screen.getByRole("progressbar", {
+      name: "实时模型分析进度",
+    });
+    expect(translatedProgress).toHaveAttribute(
+      "aria-valuetext",
+      "已用时间 01:05",
+    );
+    expect(screen.getByText("已用时间 01:05")).toBeVisible();
 
     await act(async () => {
       pendingAnalysis.resolve(liveResult);
       await pendingAnalysis.promise;
     });
     expect(
-      await screen.findByRole("heading", { name: "需要仔细复查" }),
+      screen.getByRole("heading", { name: "需要仔细复查" }),
     ).toBeVisible();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(clearIntervalSpy).toHaveBeenCalledWith(liveIntervalId);
   });
 
   it("defaults optional Anki cards off for live requests and the result workspace", async () => {

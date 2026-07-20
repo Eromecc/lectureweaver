@@ -16,7 +16,6 @@ import {
   SessionProviderKeyError,
   sessionProviderKeyHeaders,
 } from "./session-credential";
-import { ANALYSIS_CLIENT_TIMEOUT_MS } from "./timeouts";
 
 export class LiveAnalysisError extends Error {
   readonly code: AnalyzeErrorCode;
@@ -52,15 +51,6 @@ function resolveRequestOptions(
         sessionKimiRegion: input?.sessionKimiRegion,
         outputLanguage: input?.outputLanguage ?? "en",
       };
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    error.name === "AbortError"
-  );
 }
 
 export async function requestLiveAnalysis(
@@ -104,11 +94,6 @@ export async function requestLiveAnalysis(
     );
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    ANALYSIS_CLIENT_TIMEOUT_MS,
-  );
   let response: Response;
   let responseText: string;
   try {
@@ -120,24 +105,14 @@ export async function requestLiveAnalysis(
       },
       body: JSON.stringify(request.data),
       cache: "no-store",
-      signal: controller.signal,
     });
     responseText = await response.text();
-  } catch (error: unknown) {
-    if (isAbortError(error) || controller.signal.aborted) {
-      throw new LiveAnalysisError(
-        "provider_timeout",
-        "The analysis request did not finish within the browser time limit.",
-        true,
-      );
-    }
+  } catch {
     throw new LiveAnalysisError(
       "provider_error",
       "The analysis service could not be reached.",
       true,
     );
-  } finally {
-    clearTimeout(timeout);
   }
 
   let payload: unknown;

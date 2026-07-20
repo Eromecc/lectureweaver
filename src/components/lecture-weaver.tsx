@@ -1272,9 +1272,25 @@ function SpokenSourceCard({
 }
 
 function LoadingPanel({ message, kind, t }: { message: string; kind: LoadingKind; t: UiTranslator }) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000));
+    }, 1_000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const elapsedTime = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
   const steps =
     kind === "live"
-      ? [t("pipeline.validateFiles"), t("pipeline.auditConcepts"), t("pipeline.rebuildNotes"), t("pipeline.createStudyTools"), t("pipeline.hydrateEvidence")]
+      ? [
+          t("pipeline.sourceMapReady"),
+          t("pipeline.waitForProvider"),
+          t("pipeline.validateOutput"),
+        ]
       : kind === "demo"
         ? [t("pipeline.validateFiles"), t("pipeline.extractNormalize"), t("pipeline.verifyFixture"), t("pipeline.buildStudyPack"), t("pipeline.hydrateEvidence")]
         : [t("pipeline.validateFiles"), t("pipeline.extractNormalize"), t("pipeline.buildSourceMap")];
@@ -1285,14 +1301,14 @@ function LoadingPanel({ message, kind, t }: { message: string; kind: LoadingKind
         ? t("pipeline.demo")
         : t("pipeline.local");
   return (
-    <section className="animate-rise rounded-[28px] border border-[#2f837c]/20 bg-[#14213d] p-6 text-white shadow-card sm:p-8" aria-live="polite" aria-busy="true">
+    <section className="animate-rise rounded-[28px] border border-[#2f837c]/20 bg-[#14213d] p-6 text-white shadow-card sm:p-8" aria-busy="true">
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <span className="relative grid size-13 shrink-0 place-items-center rounded-2xl bg-white/10">
             <span className="absolute inset-2 animate-soft-pulse rounded-xl bg-[#2f837c]/35" />
             <LoaderCircle className="relative size-6 animate-spin text-[#f8ebc8]" aria-hidden="true" />
           </span>
-          <div>
+          <div aria-live="polite">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#b8dcd6]">{eyebrow}</p>
             <p className="mt-1 text-lg font-bold">{message}</p>
             {kind === "live" && (
@@ -1309,6 +1325,21 @@ function LoadingPanel({ message, kind, t }: { message: string; kind: LoadingKind
             </span>
           ))}
         </div>
+      </div>
+      <div className="mt-6 flex items-center justify-between gap-4 text-xs font-bold text-white/65">
+        <span>{t("pipeline.elapsed", { time: elapsedTime })}</span>
+        <span>{kind === "live" ? t("pipeline.waitForProvider") : eyebrow}</span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label={t("pipeline.progressAria", { kind: eyebrow })}
+        aria-valuetext={t("pipeline.elapsed", { time: elapsedTime })}
+        className="relative mt-2 h-2 overflow-hidden rounded-full bg-white/10"
+      >
+        <span
+          aria-hidden="true"
+          className="analysis-progress-sweep absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[#b8dcd6] via-[#f8ebc8] to-[#ef6b5a]"
+        />
       </div>
     </section>
   );
@@ -3680,7 +3711,7 @@ export function LectureWeaver(
       provider.models.some((model) => model.id === nextTarget.model);
 
     setMode("loading");
-    setLoadingKind(canAnalyzeLive ? "live" : "local");
+    setLoadingKind("local");
     setError(null);
     setResult(null);
     setProcessed(null);
@@ -4064,6 +4095,7 @@ export function LectureWeaver(
         <div className="mx-auto max-w-[1440px] space-y-8 px-5 pb-20 sm:px-8 lg:px-12">
           {mode === "loading" && (
             <LoadingPanel
+              key={loadingKind}
               message={t(loadingMessage.key, loadingMessage.values)}
               kind={loadingKind}
               t={t}

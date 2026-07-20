@@ -1,4 +1,3 @@
-// Keep each layer bounded while allowing the server enough time to return a
-// typed provider timeout before the browser gives up on the request.
-export const ANALYSIS_PROVIDER_TIMEOUT_MS = 120_000;
-export const ANALYSIS_CLIENT_TIMEOUT_MS = 170_000;
+// Leave a small margin beneath Vercel Hobby's five-minute function ceiling so
+// the route can return a typed provider timeout instead of a platform error.
+export const ANALYSIS_PROVIDER_TIMEOUT_MS = 285_000;

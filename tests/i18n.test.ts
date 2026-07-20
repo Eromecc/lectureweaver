@@ -110,12 +110,19 @@ describe("static UI localization", () => {
       "오디오 가이드",
     );
     for (const locale of UI_LOCALES) {
+      const localized = createUiTranslator(locale);
+      expect(localized("error.liveTimeoutRecovery")).toContain(
+        "DeepSeek V4 Flash",
+      );
       expect(
-        createUiTranslator(locale)("error.liveTimeoutRecovery"),
-      ).toContain("DeepSeek V4 Flash");
-      expect(
-        createUiTranslator(locale)("pipeline.liveWaitHint"),
-      ).toMatch(/3/);
+        localized("pipeline.progressAria", { kind: "PROVIDER" }),
+      ).toContain("PROVIDER");
+      expect(localized("pipeline.elapsed", { time: "01:05" })).toContain(
+        "01:05",
+      );
+      expect(localized("pipeline.liveWaitHint")).not.toMatch(
+        /3\s*(?:minutes?|分钟|分|분)/i,
+      );
     }
   });
 });

@@ -5,7 +5,6 @@ import {
   LiveAnalysisError,
   requestLiveAnalysis,
 } from "@/lib/ai/client";
-import { ANALYSIS_CLIENT_TIMEOUT_MS } from "@/lib/ai/timeouts";
 import type { ProcessedSources } from "@/lib/extraction";
 
 import { buildTestAnalysis } from "./analysis-fixtures";
@@ -138,18 +137,13 @@ describe("live analysis browser client credentials", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it("aborts a stalled browser request at the client deadline and clears its timer", async () => {
+  it("does not impose a browser deadline while the server request is pending", async () => {
     vi.useFakeTimers();
-    let capturedSignal: AbortSignal | undefined;
+    let resolveFetch: ((response: Response) => void) | undefined;
     const fetchImpl = vi.fn<typeof fetch>(
-      (_input, init) =>
-        new Promise<Response>((_resolve, reject) => {
-          capturedSignal = init?.signal ?? undefined;
-          init?.signal?.addEventListener(
-            "abort",
-            () => reject(new DOMException("Aborted", "AbortError")),
-            { once: true },
-          );
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
         }),
     );
 
@@ -159,17 +153,29 @@ describe("live analysis browser client credentials", () => {
       { ankiCards: false },
       { fetchImpl, sessionApiKey: "temporary-deepseek-key-123456" },
     );
-    const assertion = expect(pending).rejects.toMatchObject({
-      code: "provider_timeout",
-      retryable: true,
-    });
+    const settled = vi.fn();
+    void pending.then(settled);
 
-    await vi.advanceTimersByTimeAsync(ANALYSIS_CLIENT_TIMEOUT_MS - 1);
-    expect(capturedSignal?.aborted).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
-    await assertion;
-    expect(capturedSignal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1_000);
+    expect(settled).not.toHaveBeenCalled();
+    expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty("signal");
     expect(vi.getTimerCount()).toBe(0);
+
+    resolveFetch?.(
+      Response.json({
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        analysis,
+      }),
+    );
+    await expect(pending).resolves.toMatchObject({
+      origin: {
+        kind: "live",
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+      },
+    });
+    expect(settled).toHaveBeenCalledOnce();
   });
 
   it("maps an unreadable 504 response to a retryable provider timeout", async () => {
@@ -208,15 +214,16 @@ describe("live analysis browser client credentials", () => {
     });
   });
 
-  it("clears the browser deadline after a successful response", async () => {
+  it("does not install a browser deadline for a successful response", async () => {
     vi.useFakeTimers();
-    const fetchImpl = vi.fn<typeof fetch>(async () =>
-      Response.json({
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      expect(init).not.toHaveProperty("signal");
+      return Response.json({
         provider: "openai",
         model: "gpt-5.6",
         analysis,
-      }),
-    );
+      });
+    });
 
     await requestLiveAnalysis(
       processed,

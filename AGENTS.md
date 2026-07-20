@@ -103,7 +103,7 @@ Run lint, tests, and a production build before handing off the milestone. The bu
 - UI and docs must state that a temporary key is visible to the user's browser/device and extensions, crosses the LectureWeaver/Vercel function, and is forwarded only to the selected allowlisted provider. Say “not persisted by LectureWeaver,” not “never leaves the browser” or “guaranteed erased.”
 - ChatGPT/Codex subscription entitlements are not OpenAI Platform API credits. Do not use Codex login tokens or ChatGPT cookies as application credentials.
 - Apply bounded request size, provider timeout, and model-output limits. Treat empty, refused, filtered, truncated, malformed, oversized, or semantically invalid provider output as an error.
-- Keep the live-analysis timeout layers ordered: abort the upstream provider request at 120 seconds, bound the browser request at 170 seconds, and cap the application function at 180 seconds. The 50-second outer headroom includes request upload, function startup, cleanup, and delivery of the typed timeout response. Do not reuse these values for transcription or speech, which keep their own audio-specific limits.
+- Do not impose an application browser deadline on live analysis. Abort the upstream provider request at 285 seconds and cap the Vercel Hobby application function at its 300-second platform ceiling, leaving time for cleanup and delivery of the typed timeout response. Do not reuse these values for transcription or speech, which keep their own audio-specific limits.
 - Bound the one-shot analysis response to 8,000 output tokens without Anki and 10,000 with Anki. Prompt for a concise, merged study pack within the documented assessment, section, prose, and card targets; never lower only the token ceiling without keeping the prompt budget aligned.
 - Never automatically retry a timed-out live provider request. Because the first attempt may already have consumed provider credits, preserve the source map and require an explicit user retry or provider/model change before issuing another request.
 - Map expected failures to the stable API error envelope without leaking provider response bodies, keys, prompts, or internal stack traces.
@@ -186,7 +186,7 @@ Add focused regression coverage for behavior changes:
 - sample ingestion, fingerprint mismatch, provider-unconfigured behavior, and accessible UI interactions;
 - OpenAI structured parse/refusal/length/error mapping;
 - DeepSeek JSON parsing, empty/length/error cases, and Kimi strict-schema request/response handling;
-- provider, browser, and function timeout boundaries (120/170/180 seconds), browser abort behavior, timer cleanup, authentication, balance, rate-limit, and invalid-output failures with mocked network responses;
+- provider and function timeout boundaries (285/300 seconds), absence of an application browser deadline, authentication, balance, rate-limit, and invalid-output failures with mocked network responses;
 - speech model/voice and MP3/WAV allowlists, the 4,096-character narration limit, audio response headers, playback/download state, retry, timeout, and invalid/empty audio failures.
 
 Tests use synthetic data. Avoid snapshots that conceal meaningful domain changes. Never call a paid provider from the test suite.

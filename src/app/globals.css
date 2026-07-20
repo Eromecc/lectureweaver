@@ -80,6 +80,11 @@ label {
   animation: soft-pulse 1.7s ease-in-out infinite;
 }
 
+.analysis-progress-sweep {
+  width: 42%;
+  animation: analysis-progress-sweep 1.7s ease-in-out infinite;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -101,6 +106,15 @@ label {
   }
 }
 
+@keyframes analysis-progress-sweep {
+  from {
+    transform: translateX(-115%);
+  }
+  to {
+    transform: translateX(345%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -112,5 +126,12 @@ label {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
+  }
+
+  .analysis-progress-sweep {
+    width: 100%;
+    animation: none !important;
+    opacity: 0.7;
+    transform: none;
   }
 }
